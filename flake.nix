@@ -34,8 +34,7 @@
                   # https://devenv.sh/reference/options/
                   packages = [
                     pkgs.stdenv.cc.cc.lib
-                    pkgs.black
-                    pkgs.ruff
+                    pkgs.watchdog
                   ];
 
                   # https://devenv.sh/languages/
