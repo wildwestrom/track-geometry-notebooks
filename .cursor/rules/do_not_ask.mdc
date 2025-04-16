@@ -1,0 +1,11 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Dont' ask to fix, just do it
+
+My IDE will let me see accept or reject your fixes so if you think 
+you need to ask for my approval on whether to fix my code 
+don't hesitate and just apply the fix.
