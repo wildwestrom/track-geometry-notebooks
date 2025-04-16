@@ -7,15 +7,15 @@ def generate_terrain(
     frequency=4.0,
     octaves=4,
     persistence=0.5,
-    lacunarity=2.0,
+    lacunarity=2.7,
     smoothing=0.0,
-    seed=None
+    seed=None,
 ):
     # Create a seeded noise generator
     if seed is not None:
         noise_gen = OpenSimplex(seed=seed)
     else:
-        noise_gen = OpenSimplex()
+        noise_gen = OpenSimplex(0)
     
     noise = np.zeros((size, size))
 
