@@ -1,7 +1,7 @@
 import marimo
 
-__generated_with = "0.12.7"
-app = marimo.App(width="medium", auto_download=["html"])
+__generated_with = "0.12.9"
+app = marimo.App(width="medium")
 
 
 @app.cell
@@ -134,11 +134,12 @@ def _(
 ):
     terrain = generate_terrain(
         size_slider.value,
+        initial_frequency_slider.value,
         octaves_slider.value,
         persistence_slider.value,
         lacunarity_slider.value,
-        initial_frequency_slider.value,
         smoothing_slider.value,
+        seed=0
     )
 
     rel_start_point = (0.2, 0.2)
