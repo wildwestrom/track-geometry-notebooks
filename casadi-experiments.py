@@ -9,10 +9,23 @@ def _():
     import numpy as np
     import matplotlib.pyplot as plt
     import casadi as ca
+    import os
     from matplotlib.collections import LineCollection
     from matplotlib.colors import LinearSegmentedColormap
     from terrain_gen import generate_terrain
+    return (
+        LineCollection,
+        LinearSegmentedColormap,
+        ca,
+        generate_terrain,
+        np,
+        os,
+        plt,
+    )
 
+
+@app.cell
+def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
     # Define physical constants and scales
     TERRAIN_SIZE_KM = 50.0 # Length of each side in km
     MIN_ELEVATION_M = 10.0  # 10m above sea level
@@ -65,62 +78,44 @@ def _():
         def create_terrain_cost_from_array(self, terrain, terrain_size=(10, 10)):
             """
             Create a cost function from a terrain array using a direct lookup approach compatible with CasADi.
-
             Args:
                 terrain: A 2D array of terrain heights/costs
                 terrain_size: The real-world size of the terrain (width, height)
-
             Returns:
                 A function that provides terrain cost at a given point
             """
+            # Inline gradient and cost field computation
             height, width = terrain.shape
-            x_scale = width / terrain_size[0]
-            y_scale = height / terrain_size[1]
-
-            # Flatten the terrain for easier lookup with CasADi
-            terrain_flat = terrain.flatten()
-
-            # Create CasADi lookup table function
-            # For online use in the optimizer - only used for symbolic evaluation
+            dx = terrain_size[0] / (width - 1)
+            dy = terrain_size[1] / (height - 1)
+            grad_y, grad_x = np.gradient(terrain, dy, dx)
+            grad_mag = np.sqrt(grad_x**2 + grad_y**2)
+            cost_field = grad_mag**2
+            self.terrain_gradient = (grad_x, grad_y)
+            self.terrain_gradient_mag = grad_mag
+            self.terrain_cost_field = cost_field
+            # Create CasADi interpolant for the cost field
+            x_params = np.linspace(0, terrain_size[0], width)
+            y_params = np.linspace(0, terrain_size[1], height)
+            cost_flat = cost_field.flatten()
             try:
-                # Pre-compute parameter vectors for the lookup
-                x_params = np.linspace(0, terrain_size[0], width)
-                y_params = np.linspace(0, terrain_size[1], height)
-
-                # Set up grid for 2D linear interpolation
-                grid_x, grid_y = np.meshgrid(x_params, y_params)
-                points = np.column_stack([grid_x.flatten(), grid_y.flatten()])
-
-                # Create lookup function
-                terrain_lookup = ca.interpolant('terrain_lookup', 'linear', 
-                                                [x_params, y_params], 
-                                                terrain_flat)
+                cost_lookup = ca.interpolant('cost_lookup', 'linear', [x_params, y_params], cost_flat)
             except:
-                # Fallback in case CasADi interpolant creation fails
-                print("Warning: Failed to create CasADi interpolant. Using simplified terrain model.")
-                terrain_lookup = None
-
+                print("Warning: Failed to create CasADi cost interpolant. Using fallback.")
+                cost_lookup = None
             def cost_function(x, y):
-                # For numeric inputs, directly access the array
                 if isinstance(x, (float, int)) and isinstance(y, (float, int)):
-                    # Convert real-world coordinates to array indices
-                    i = int(min(max(y * y_scale, 0), height-1))
-                    j = int(min(max(x * x_scale, 0), width-1))
-                    return terrain[i, j]
-                elif terrain_lookup is not None:
-                    # For symbolic variables, use the CasADi interpolant
+                    i = int(min(max(y * (height-1), 0), height-1))
+                    j = int(min(max(x * (width-1), 0), width-1))
+                    return cost_field[i, j]
+                elif cost_lookup is not None:
                     try:
-                        # CasADi requires column vectors
                         xy = ca.vertcat(x, y)
-                        return terrain_lookup(xy)
+                        return cost_lookup(xy)
                     except:
-                        # Fallback if the interpolant fails
-                        print("Warning: Interpolant call failed. Using simple terrain model.")
-                        return 1.0 + 0.2 * (x + y)  # Simple fallback
+                        return 1.0 + 0.2 * (x + y)
                 else:
-                    # Simple fallback if no interpolant is available
                     return 1.0 + 0.2 * (x + y)
-
             return cost_function
 
         def optimize_path(self, start_point, end_point, via_points=None, 
@@ -478,7 +473,6 @@ def _():
             ax.set_xlim(0, self.scale_factors['distance'])
             ax.set_ylim(0, self.scale_factors['distance'])
             plt.tight_layout()
-            import os
             os.makedirs('plots', exist_ok=True)
             config_name = title.replace(" Configuration", "")
             config_name = config_name.replace(" ", "_").lower()
@@ -624,7 +618,6 @@ def _():
             plt.subplots_adjust(bottom=0.15)
             plt.title(title)
             plt.grid(True, alpha=0.3)
-            import os
             os.makedirs('plots', exist_ok=True)
             config_name = title.replace("Railway Path ", "").replace(" Profile", "")
             config_name = config_name.replace(" ", "_").lower()
@@ -632,23 +625,68 @@ def _():
             plt.savefig(filename, dpi=300, bbox_inches='tight')
             print(f"Saved combined profile to {filename}")
             plt.show()
+
+    # --- Add a function to plot the terrain gradient vector field ---
+    def plot_terrain_gradient_vector_field(terrain, grad, terrain_size=(10, 10), title="Terrain Gradient Vector Field"):
+        height, width = terrain.shape
+        x = np.linspace(0, terrain_size[0], width)
+        y = np.linspace(0, terrain_size[1], height)
+        X, Y = np.meshgrid(x, y)
+        plt.figure(figsize=(8, 6))
+        plt.imshow(terrain, extent=(0, terrain_size[0], 0, terrain_size[1]), origin='lower', cmap='terrain', alpha=0.5)
+        plt.colorbar(label='Elevation (m)')
+        skip = max(1, width // 30)  # Reduce number of arrows for clarity
+
+        # Compute gradient magnitude for color
+        grad_x_skip = grad[0][::skip, ::skip]
+        grad_y_skip = grad[1][::skip, ::skip]
+        grad_mag = np.sqrt(grad_x_skip**2 + grad_y_skip**2)
+
+        # Normalize vectors to unit length for uniform arrow size
+        norm = np.sqrt(grad_x_skip**2 + grad_y_skip**2)
+        norm[norm == 0] = 1  # avoid division by zero
+        grad_x_unit = grad_x_skip / norm
+        grad_y_unit = grad_y_skip / norm
+
+        # Plot quiver with color denoting magnitude, arrows all same length, arrows centered
+        Q = plt.quiver(
+            X[::skip, ::skip], Y[::skip, ::skip],
+            grad_x_unit, grad_y_unit,
+            grad_mag,  # color by magnitude
+            cmap='plasma',
+            scale=30, width=0.003, headwidth=3, headlength=4,
+            pivot='middle'  # Center the arrows
+        )
+        cbar = plt.colorbar(Q, label='Gradient Magnitude')
+        plt.title(title)
+        plt.xlabel('Distance (km)')
+        plt.ylabel('Distance (km)')
+        plt.tight_layout()
+        # Save plot to file
+        os.makedirs('plots', exist_ok=True)
+        config_name = title.replace(" ", "_").lower()
+        filename = f'plots/terrain_gradient_vector_field.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Saved terrain gradient vector field to {filename}")
+        plt.show()
     return (
         GRID_SIZE,
-        LineCollection,
-        LinearSegmentedColormap,
         MAX_ELEVATION_M,
         MIN_ELEVATION_M,
         RailwayPathOptimizer,
         TERRAIN_SIZE_KM,
-        ca,
-        generate_terrain,
-        np,
-        plt,
+        plot_terrain_gradient_vector_field,
     )
 
 
 @app.cell
-def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
+def _(
+    RailwayPathOptimizer,
+    TERRAIN_SIZE_KM,
+    generate_terrain,
+    np,
+    plot_terrain_gradient_vector_field,
+):
     # Generate terrain using the terrain_gen module
     terrain_size = 100
     print("Generating terrain...")
@@ -661,7 +699,7 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
 
     # Scale terrain to a more realistic elevation range (50-500 meters)
     base_elevation = 50.0  # minimum elevation in meters
-    elevation_range = 450.0  # maximum elevation variation in meters
+    elevation_range = 500.0  # maximum elevation variation in meters
     terrain = base_elevation + (terrain * elevation_range)  # This gives us elevations from 50m to 500m
 
     print(f"Terrain elevation range: {np.min(terrain):.1f}m to {np.max(terrain):.1f}m")
@@ -673,6 +711,7 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
     terrain_cost = optimizer.create_terrain_cost_from_array(terrain, 
                                                           terrain_size=(TERRAIN_SIZE_KM, TERRAIN_SIZE_KM))
     optimizer.terrain_cost = terrain_cost
+    plot_terrain_gradient_vector_field(terrain, optimizer.terrain_gradient, terrain_size=(TERRAIN_SIZE_KM, TERRAIN_SIZE_KM))
 
     # Define start and end points (normalized coordinates)
     start = (0.2, 0.2)  # normalized
@@ -726,8 +765,10 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
         else:
             print(f"Failed to optimize path with {label} configuration")
     return (
+        base_elevation,
         curvature_change_weight,
         curvature_weight,
+        elevation_range,
         end,
         gradient_weight,
         initial_path,
@@ -738,7 +779,6 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
         terrain,
         terrain_cost,
         terrain_cost_weight,
-        terrain_height_scale,
         terrain_size,
         time_weight,
         via_points,
