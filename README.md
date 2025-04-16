@@ -70,6 +70,8 @@ The project uses Nix for dependency management. To set up the development enviro
 2. Run `direnv allow` to set up the development environment
 3. The project will automatically load the correct environment when you enter the directory
 
+The user will have a marimo notebook open to run and view code changes.
+
 ## License
 
 GNU General Public License version 3

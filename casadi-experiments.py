@@ -38,7 +38,7 @@ def _():
             """
             self.terrain = terrain
             self.terrain_cost = terrain_cost or (lambda x, y: 0)
-            
+
             # Get terrain dimensions if provided
             if terrain is not None:
                 self.height, self.width = terrain.shape
@@ -47,13 +47,13 @@ def _():
             else:
                 self.height = self.width = None
                 self.x_bounds = self.y_bounds = None
-            
+
             self.scale_factors = {
                 'distance': TERRAIN_SIZE_KM,  # km
                 'elevation': MAX_ELEVATION_M - MIN_ELEVATION_M,  # m
                 'min_elevation': MIN_ELEVATION_M  # m
             }
-            
+
             # Create terrain interpolant if terrain is provided
             if terrain is not None:
                 x_grid = np.linspace(self.x_bounds[0], self.x_bounds[1], self.width)
@@ -170,14 +170,14 @@ def _():
                 opti.subject_to(x[i] <= self.x_bounds[1] - buffer)
                 opti.subject_to(y[i] >= self.y_bounds[0] + buffer)
                 opti.subject_to(y[i] <= self.y_bounds[1] - buffer)
-                
+
             # Add path continuity constraints to prevent "teleporting" between points
             # Limit the maximum step size between consecutive points
             max_step = 0.2  # Relaxed from 0.15 to 0.2
             for i in range(n_points-1):
                 step_size = ca.sqrt((x[i+1]-x[i])**2 + (y[i+1]-y[i])**2)
                 opti.subject_to(step_size <= max_step)
-                
+
                 # Encourage more uniform step sizes for a smoother path
                 if i < n_points-2:
                     next_step = ca.sqrt((x[i+2]-x[i+1])**2 + (y[i+2]-y[i+1])**2)
@@ -198,7 +198,7 @@ def _():
                 x_dist_from_max = (self.x_bounds[1] - x[i]) / (self.x_bounds[1] - self.x_bounds[0])
                 y_dist_from_min = (y[i] - self.y_bounds[0]) / (self.y_bounds[1] - self.y_bounds[0])
                 y_dist_from_max = (self.y_bounds[1] - y[i]) / (self.y_bounds[1] - self.y_bounds[0])
-                
+
                 boundary_violation += (1/(x_dist_from_min + 1e-3) + 1/(x_dist_from_max + 1e-3) + 
                                     1/(y_dist_from_min + 1e-3) + 1/(y_dist_from_max + 1e-3))
 
@@ -207,27 +207,27 @@ def _():
             elevation_changes = []
             cumulative_elevation_gain = 0
             prev_elevation = None
-            
+
             for i in range(n_points-1):
                 # Get elevations at start and end of segment using interpolation
                 elev1 = self.terrain_interpolant(ca.vertcat(x[i], y[i]))
                 elev2 = self.terrain_interpolant(ca.vertcat(x[i+1], y[i+1]))
                 dz = elev2 - elev1  # meters
                 elevation_changes.append(dz)
-                
+
                 # Track cumulative elevation gain (only count uphill segments)
                 # Use CasADi's conditional functions for symbolic variables
                 cumulative_elevation_gain += ca.fmax(0, dz)  # Only add positive elevation changes
-                
+
                 # Calculate horizontal distance in meters (using normalized coordinates)
                 dx = (x[i+1] - x[i])  # normalized distance
                 dy = (y[i+1] - y[i])  # normalized distance
                 dist = ca.sqrt(dx**2 + dy**2) * self.scale_factors['distance'] * 1000  # convert to meters
-                
+
                 # Calculate gradient (rise over run, in m/m)
                 gradient = dz / (dist + 1e-6)
                 gradients.append(gradient)
-                
+
                 # Add constraints on maximum gradient
                 opti.subject_to(gradient <= max_gradient)
                 opti.subject_to(gradient >= -max_gradient)
@@ -236,92 +236,92 @@ def _():
             curvature = []
             curvature_change = []
             direction_changes = []
-            
+
             for i in range(1, n_points-1):
                 # Calculate vectors between consecutive points
                 v1x = x[i] - x[i-1]
                 v1y = y[i] - y[i-1]
                 v2x = x[i+1] - x[i]
                 v2y = y[i+1] - y[i]
-                
+
                 # Calculate angle between vectors
                 dot_product = v1x*v2x + v1y*v2y
                 v1_norm = ca.sqrt(v1x**2 + v1y**2)
                 v2_norm = ca.sqrt(v2x**2 + v2y**2)
-                
+
                 # Curvature as angle deviation from straight line
                 cos_angle = dot_product / (v1_norm * v2_norm + 1e-6)
-                
+
                 # Constraint so that cos_angle doesn't go outside [-1, 1]
                 opti.subject_to(cos_angle <= 1)
                 opti.subject_to(cos_angle >= -1)
-                
+
                 # Use a more numerically stable curvature calculation
                 # 0 for straight line, 2 for complete reversal
                 k = 1 - cos_angle
                 curvature.append(k)
-                
+
                 # Track the direction change in degrees for analysis
                 direction_change = ca.acos(cos_angle) * 180 / np.pi  # Convert to degrees
                 direction_changes.append(direction_change)
-                
+
                 # Add constraint on maximum curvature
                 opti.subject_to(k <= max_curvature)
-                
+
                 if i > 1:
                     prev_k = curvature[-2]
                     # Change in curvature (second derivative of path)
                     dk = (k - prev_k)
                     curvature_change.append(dk)
-                    
+
                     # Limit the change in curvature for smooth transitions - relaxed
                     opti.subject_to(ca.fabs(dk) <= 0.15)  # Increased from 0.1 to 0.15
 
             # Calculate objective terms with improved formulation
             curvature_obj = curvature_weight * sum(k**2 for k in curvature) / len(curvature)
             curvature_change_obj = curvature_change_weight * sum(dk**2 for dk in curvature_change) / max(1, len(curvature_change))
-            
+
             # Gradient penalty - penalize both high gradients and changes in gradient
             gradient_obj = gradient_weight * sum(g**2 for g in gradients) / len(gradients)
-            
+
             # Add gradient change penalty for smoother profile
             gradient_changes = [ca.fabs(gradients[i] - gradients[i-1]) for i in range(1, len(gradients))]
             gradient_change_obj = 0.5 * gradient_weight * sum(gc**2 for gc in gradient_changes) / max(1, len(gradient_changes))
-            
+
             # Calculate terrain cost - now based on work against gravity and excavation costs
             terrain_costs = []
             for i in range(n_points-1):
                 # Get elevations
                 elevation1 = self.terrain_interpolant(ca.vertcat(x[i], y[i]))
                 elevation2 = self.terrain_interpolant(ca.vertcat(x[i+1], y[i+1]))
-                
+
                 # Horizontal distance
                 dx = (x[i+1] - x[i])  # normalized distance
                 dy = (y[i+1] - y[i])  # normalized distance
                 dist = ca.sqrt(dx**2 + dy**2) * self.scale_factors['distance'] # in km
-                
+
                 # Work against gravity (elevation change × distance)
                 elev_change = elevation2 - elevation1
-                
+
                 # Different cost for uphill vs downhill
                 # Climbing (positive elev_change) is more expensive than descending
                 uphill_cost = 3.0 * ca.fmax(0, elev_change) * dist
                 downhill_cost = 1.0 * ca.fmax(0, -elev_change) * dist
                 work_cost = uphill_cost + downhill_cost
-                
+
                 # Excavation cost - higher elevations require more excavation
                 avg_elevation = (elevation1 + elevation2) / 2
                 excavation_cost = 0.5 * avg_elevation * dist
-                
+
                 # Total segment cost
                 terrain_costs.append(work_cost + excavation_cost)
-            
+
             cost_obj = terrain_cost_weight * sum(terrain_costs) / len(terrain_costs)
-            
+
             # Time/distance objective - penalize total path length with higher weight
             path_length = sum(ds) * self.scale_factors['distance']  # in km
             time_obj = time_weight * path_length
-            
+
             # Add a penalty for excessive total elevation gain
             elevation_gain_obj = 0.2 * terrain_cost_weight * cumulative_elevation_gain / self.scale_factors['distance']
 
@@ -342,11 +342,11 @@ def _():
                 # follows lower elevation areas between start and end
                 x_init = np.zeros(n_points)
                 y_init = np.zeros(n_points)
-                
+
                 # First try a straight line to see elevation profile
                 straight_x = np.linspace(start_point[0], end_point[0], n_points)
                 straight_y = np.linspace(start_point[1], end_point[1], n_points)
-                
+
                 # Sample terrain along the straight line
                 elevations = np.zeros(n_points)
                 for i in range(n_points):
@@ -359,39 +359,39 @@ def _():
                         elevations[i] = self.terrain[i_y, i_x]
                     else:
                         elevations[i] = 0
-                
+
                 # Calculate a detour parameter based on terrain variation 
                 # (more detour for more varied terrain)
                 elevation_range = np.max(elevations) - np.min(elevations)
                 relative_range = elevation_range / (np.mean(elevations) + 1e-6)
                 detour_factor = min(0.2, relative_range * 0.1)  # Cap at 0.2
-                
+
                 # Create a slight arc to avoid high points
                 for i in range(n_points):
                     t = i / (n_points - 1)
-                    
+
                     # Base path is straight line from start to end
                     x_base = (1 - t) * start_point[0] + t * end_point[0]
                     y_base = (1 - t) * start_point[1] + t * end_point[1]
-                    
+
                     # Add a slight arc perpendicular to the straight line
                     # Maximum deviation at the midpoint, zero at endpoints
                     # Direction is perpendicular to straight line
                     dx = end_point[0] - start_point[0]
                     dy = end_point[1] - start_point[1]
-                    
+
                     # Calculate perpendicular direction (normalized)
                     dist = np.sqrt(dx**2 + dy**2) + 1e-10
                     perp_x = -dy / dist
                     perp_y = dx / dist
-                    
+
                     # Arc shape: 0 at endpoints, maximum at midpoint
                     arc_factor = 4 * t * (1 - t) * detour_factor
-                    
+
                     # Add the arc offset
                     x_init[i] = x_base + perp_x * arc_factor
                     y_init[i] = y_base + perp_y * arc_factor
-                    
+
                     # Ensure within bounds
                     x_init[i] = np.clip(x_init[i], 
                                       self.x_bounds[0] + 2*buffer, 
@@ -531,9 +531,6 @@ def _():
                 lc.set_array(np.array(gradients))
                 ax.add_collection(lc)
 
-                cbar = plt.colorbar(lc, ax=ax, label='Gradient (m/m)')
-                cbar.ax.set_yticklabels([f'{x:.1%}' for x in cbar.ax.get_yticks()])
-
             # Add white background to legend and stats for better visibility
             ax.legend(loc='lower right', framealpha=1, facecolor='white', edgecolor='black')
 
@@ -589,7 +586,7 @@ def _():
             ax.set_ylim(0, self.scale_factors['distance'])
 
             plt.tight_layout()
-            
+
             # Save the plot to a file
             import os
             import datetime
@@ -601,10 +598,441 @@ def _():
             filename = f'plots/railway_path_{config_name}.png'
             plt.savefig(filename, dpi=300, bbox_inches='tight')
             print(f"Saved plot to {filename}")
-            
+
             plt.show()
 
+        def plot_gradient_profile(self, x_coords, y_coords, terrain=None, title="Railway Path Gradient Profile"):
+            """
+            Plot a separate scatter plot of path gradient with points spaced by Euclidean distance.
+            """
+            if terrain is None:
+                print("Cannot plot gradient profile without terrain data")
+                return
 
+            # Convert coordinates to kilometers
+            x_km = x_coords * self.scale_factors['distance']
+            y_km = y_coords * self.scale_factors['distance']
+
+            # Calculate cumulative distance along the path
+            distances = [0]  # Start with 0
+            gradients = []
+            elevations = []
+
+            for i in range(len(x_km)-1):
+                # Calculate horizontal distance in km
+                dx = x_km[i+1] - x_km[i]
+                dy = y_km[i+1] - y_km[i]
+                segment_distance = np.sqrt(dx**2 + dy**2)  # Euclidean distance in km
+
+                # Skip segments with extremely small distances to avoid division by near-zero
+                if segment_distance < 1e-6:
+                    continue
+
+                # Add to cumulative distance
+                distances.append(distances[-1] + segment_distance)
+
+                # Get elevations at start and end of segment
+                height, width = terrain.shape
+                x_ratio = width / self.scale_factors['distance']
+                y_ratio = height / self.scale_factors['distance']
+
+                x1_idx = int(min(max(x_coords[i] * x_ratio, 0), width-1))
+                y1_idx = int(min(max(y_coords[i] * y_ratio, 0), height-1))
+                x2_idx = int(min(max(x_coords[i+1] * x_ratio, 0), width-1))
+                y2_idx = int(min(max(y_coords[i+1] * y_ratio, 0), height-1))
+
+                elev1 = terrain[y1_idx, x1_idx]  # meters
+                elev2 = terrain[y2_idx, x2_idx]  # meters
+                elevations.append(elev1)
+
+                dz = elev2 - elev1  # meters
+
+                # Calculate gradient (elevation change / distance)
+                distance_m = segment_distance * 1000  # convert km to m
+                gradient = dz / distance_m  # m/m (dimensionless)
+                gradients.append(gradient)
+
+            # Add the final elevation point
+            if len(x_km) > 0:
+                height, width = terrain.shape
+                x_ratio = width / self.scale_factors['distance']
+                y_ratio = height / self.scale_factors['distance']
+                x_idx = int(min(max(x_coords[-1] * x_ratio, 0), width-1))
+                y_idx = int(min(max(y_coords[-1] * y_ratio, 0), height-1))
+                elevations.append(terrain[y_idx, x_idx])
+
+            # Filter out any anomalous gradients (more than 3 standard deviations from mean)
+            if gradients:
+                gradient_array = np.array(gradients)
+                mean_gradient = np.mean(gradient_array)
+                std_gradient = np.std(gradient_array)
+                threshold = 3 * std_gradient
+
+                # Replace anomalous values with interpolated values from neighbors
+                for i in range(len(gradients)):
+                    if abs(gradients[i] - mean_gradient) > threshold:
+                        # Find previous and next valid gradient
+                        prev_valid = next_valid = None
+                        prev_idx = i - 1
+                        next_idx = i + 1
+
+                        # Look for previous valid gradient
+                        while prev_idx >= 0:
+                            if abs(gradients[prev_idx] - mean_gradient) <= threshold:
+                                prev_valid = gradients[prev_idx]
+                                break
+                            prev_idx -= 1
+
+                        # Look for next valid gradient
+                        while next_idx < len(gradients):
+                            if abs(gradients[next_idx] - mean_gradient) <= threshold:
+                                next_valid = gradients[next_idx]
+                                break
+                            next_idx += 1
+
+                        # Interpolate or use nearest valid gradient
+                        if prev_valid is not None and next_valid is not None:
+                            # Linear interpolation
+                            gradients[i] = (prev_valid + next_valid) / 2
+                        elif prev_valid is not None:
+                            gradients[i] = prev_valid
+                        elif next_valid is not None:
+                            gradients[i] = next_valid
+                        else:
+                            # If no valid neighbors, use mean
+                            gradients[i] = mean_gradient
+
+            # Create figure for gradient profile
+            fig, ax = plt.subplots(figsize=(10, 5))
+
+            # Create scatter plot with gradient color-coding
+            if gradients:
+                max_abs_gradient = max(abs(min(gradients)), abs(max(gradients)))
+                norm = plt.Normalize(-max_abs_gradient, max_abs_gradient)
+
+                # Use a more intuitive colormap: red for uphill, blue for downhill
+                cmap = plt.cm.RdBu_r
+
+                # Plot gradient points with color based on value
+                scatter = ax.scatter(distances[1:], gradients, c=gradients, cmap=cmap, 
+                                   norm=norm, s=50, edgecolor='black', linewidth=0.5)
+
+                # Add a colorbar
+                cbar = plt.colorbar(scatter, ax=ax)
+                cbar.set_label('Gradient (m/m)')
+                cbar.ax.set_yticklabels([f'{x:.1%}' for x in cbar.ax.get_yticks()])
+
+                # Connect points with line to show progression along path
+                ax.plot(distances[1:], gradients, '-', color='gray', alpha=0.5, linewidth=1)
+
+            # Add a zero line
+            ax.axhline(y=0, color='gray', linestyle='-', linewidth=0.5)
+
+            # Calculate statistics (after filtering anomalies)
+            if gradients:
+                max_gradient = max(abs(g) for g in gradients)
+                avg_gradient = sum(abs(g) for g in gradients)/len(gradients)
+
+                # Add text box with statistics
+                stats_text = (
+                    f"Path Length: {distances[-1]:.2f} km\n"
+                    f"Max Gradient: {max_gradient:.1%}\n"
+                    f"Avg Gradient: {avg_gradient:.1%}"
+                )
+
+                props = dict(boxstyle='round', facecolor='wheat', alpha=0.7)
+                ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, fontsize=10,
+                       verticalalignment='top', bbox=props)
+
+            # Add axis labels and title
+            ax.set_xlabel('Distance along path (km)')
+            ax.set_ylabel('Gradient (m/m)')
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3)
+
+            # Format y-axis as percentage
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.1%}'))
+
+            # Set y-axis limits with a bit of padding
+            if gradients:
+                padding = max_abs_gradient * 0.1
+                ax.set_ylim(-max_abs_gradient - padding, max_abs_gradient + padding)
+
+            plt.tight_layout()
+
+            # Save the figure
+            import os
+            os.makedirs('plots', exist_ok=True)
+            config_name = title.replace("Railway Path ", "").replace(" Gradient Profile", "")
+            config_name = config_name.replace(" ", "_").lower()
+            filename = f'plots/gradient_profile_{config_name}.png'
+            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            print(f"Saved gradient profile to {filename}")
+
+            # Optional: Create an elevation profile plot too
+            if elevations:
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.plot(distances, elevations, '-o', color='green', linewidth=2)
+                ax.set_xlabel('Distance along path (km)')
+                ax.set_ylabel('Elevation (m)')
+                ax.set_title(f"Railway Path {title.split(' Gradient Profile')[0]} Elevation Profile")
+                ax.grid(True, alpha=0.3)
+
+                # Add statistics
+                min_elev = min(elevations)
+                max_elev = max(elevations)
+                avg_elev = sum(elevations) / len(elevations)
+
+                elev_stats = (
+                    f"Min Elevation: {min_elev:.1f} m\n"
+                    f"Avg Elevation: {avg_elev:.1f} m\n"
+                    f"Max Elevation: {max_elev:.1f} m"
+                )
+
+                ax.text(0.05, 0.95, elev_stats, transform=ax.transAxes, fontsize=10,
+                       verticalalignment='top', bbox=props)
+
+                plt.tight_layout()
+
+                # Save elevation profile
+                elevation_filename = f'plots/elevation_profile_{config_name}.png'
+                plt.savefig(elevation_filename, dpi=300, bbox_inches='tight')
+                print(f"Saved elevation profile to {elevation_filename}")
+
+            plt.show()
+
+        def plot_combined_profile(self, x_coords, y_coords, terrain=None, title="Railway Path Profile"):
+            """
+            Create a combined plot showing both gradient and elevation profiles using dual y-axes.
+            """
+            if terrain is None:
+                print("Cannot plot combined profile without terrain data")
+                return
+            
+            # Convert coordinates to kilometers
+            x_km = x_coords * self.scale_factors['distance']
+            y_km = y_coords * self.scale_factors['distance']
+            
+            # Calculate cumulative distance along the path
+            distances = [0]  # Start with 0
+            gradients = []
+            elevations = []
+            
+            for i in range(len(x_km)-1):
+                # Calculate horizontal distance in km
+                dx = x_km[i+1] - x_km[i]
+                dy = y_km[i+1] - y_km[i]
+                segment_distance = np.sqrt(dx**2 + dy**2)  # Euclidean distance in km
+                
+                # Skip segments with extremely small distances to avoid division by near-zero
+                if segment_distance < 1e-6:
+                    continue
+                    
+                # Add to cumulative distance
+                distances.append(distances[-1] + segment_distance)
+                
+                # Get elevations at start and end of segment
+                height, width = terrain.shape
+                x_ratio = width / self.scale_factors['distance']
+                y_ratio = height / self.scale_factors['distance']
+                
+                x1_idx = int(min(max(x_coords[i] * x_ratio, 0), width-1))
+                y1_idx = int(min(max(y_coords[i] * y_ratio, 0), height-1))
+                x2_idx = int(min(max(x_coords[i+1] * x_ratio, 0), width-1))
+                y2_idx = int(min(max(y_coords[i+1] * y_ratio, 0), height-1))
+                
+                elev1 = terrain[y1_idx, x1_idx]  # meters
+                elev2 = terrain[y2_idx, x2_idx]  # meters
+                elevations.append(elev1)
+                
+                dz = elev2 - elev1  # meters
+                
+                # Calculate gradient (elevation change / distance)
+                distance_m = segment_distance * 1000  # convert km to m
+                gradient = dz / distance_m  # m/m (dimensionless)
+                gradients.append(gradient)
+            
+            # Add the final elevation point
+            if len(x_km) > 0:
+                height, width = terrain.shape
+                x_ratio = width / self.scale_factors['distance']
+                y_ratio = height / self.scale_factors['distance']
+                x_idx = int(min(max(x_coords[-1] * x_ratio, 0), width-1))
+                y_idx = int(min(max(y_coords[-1] * y_ratio, 0), height-1))
+                elevations.append(terrain[y_idx, x_idx])
+                
+            # Filter out any anomalous gradients (more than 3 standard deviations from mean)
+            if gradients:
+                gradient_array = np.array(gradients)
+                mean_gradient = np.mean(gradient_array)
+                std_gradient = np.std(gradient_array)
+                threshold = 3 * std_gradient
+                
+                # Replace anomalous values with interpolated values from neighbors
+                for i in range(len(gradients)):
+                    if abs(gradients[i] - mean_gradient) > threshold:
+                        # Find previous and next valid gradient
+                        prev_valid = next_valid = None
+                        prev_idx = i - 1
+                        next_idx = i + 1
+                        
+                        # Look for previous valid gradient
+                        while prev_idx >= 0:
+                            if abs(gradients[prev_idx] - mean_gradient) <= threshold:
+                                prev_valid = gradients[prev_idx]
+                                break
+                            prev_idx -= 1
+                        
+                        # Look for next valid gradient
+                        while next_idx < len(gradients):
+                            if abs(gradients[next_idx] - mean_gradient) <= threshold:
+                                next_valid = gradients[next_idx]
+                                break
+                            next_idx += 1
+                        
+                        # Interpolate or use nearest valid gradient
+                        if prev_valid is not None and next_valid is not None:
+                            # Linear interpolation
+                            gradients[i] = (prev_valid + next_valid) / 2
+                        elif prev_valid is not None:
+                            gradients[i] = prev_valid
+                        elif next_valid is not None:
+                            gradients[i] = next_valid
+                        else:
+                            # If no valid neighbors, use mean
+                            gradients[i] = mean_gradient
+            
+            # Create the combined figure with two y-axes
+            fig, ax1 = plt.subplots(figsize=(12, 6))
+            
+            # Elevation profile on primary y-axis (left)
+            color_elevation = 'green'
+            ax1.set_xlabel('Distance along path (km)')
+            ax1.set_ylabel('Elevation (m)', color=color_elevation)
+            line1 = ax1.plot(distances, elevations, '-', color=color_elevation, linewidth=2.5, label='Elevation')
+            ax1.tick_params(axis='y', labelcolor=color_elevation)
+            
+            # Calculate elevation statistics
+            min_elev = min(elevations)
+            max_elev = max(elevations)
+            avg_elev = sum(elevations) / len(elevations)
+            
+            # Create secondary y-axis (right) for gradient
+            ax2 = ax1.twinx()
+            color_gradient = 'blue'
+            ax2.set_ylabel('Gradient (m/m)', color=color_gradient)
+            
+            # Create a properly aligned distances array for gradients that includes the starting point
+            # This fixes the off-by-one error in the gradient plot
+            gradient_distances = [distances[i] for i in range(len(distances)-1)]
+            
+            # Plot gradient as a filled area for better visibility
+            gradient_fill = ax2.fill_between(
+                gradient_distances, 
+                gradients, 
+                0,
+                where=[g > 0 for g in gradients], 
+                color='red', 
+                alpha=0.3, 
+                interpolate=True,
+                label='Uphill'
+            )
+            
+            gradient_fill_neg = ax2.fill_between(
+                gradient_distances, 
+                gradients, 
+                0,
+                where=[g <= 0 for g in gradients], 
+                color='blue', 
+                alpha=0.3, 
+                interpolate=True,
+                label='Downhill'
+            )
+            
+            # Add the gradient line on top
+            line2 = ax2.plot(gradient_distances, gradients, '-', color='purple', linewidth=1.5, label='Gradient')
+            
+            # Format y-axis as percentage
+            ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.1%}'))
+            ax2.tick_params(axis='y', labelcolor=color_gradient)
+            
+            # Add a zero line for gradient
+            ax2.axhline(y=0, color='gray', linestyle='-', linewidth=0.5)
+            
+            # Set appropriate y-limits
+            # Set a small buffer for the elevation axis
+            elev_range = max_elev - min_elev
+            if elev_range < 1:  # If almost flat
+                elev_buffer = 1.0
+            else:
+                elev_buffer = elev_range * 0.1
+            ax1.set_ylim(min_elev - elev_buffer, max_elev + elev_buffer)
+            
+            # Set reasonable limits for gradient axis
+            if gradients:
+                max_abs_gradient = max(abs(min(gradients)), abs(max(gradients)))
+                gradient_buffer = max_abs_gradient * 0.1
+                ax2.set_ylim(-max_abs_gradient - gradient_buffer, max_abs_gradient + gradient_buffer)
+            
+            # Calculate gradient statistics
+            max_gradient = max(abs(g) for g in gradients) if gradients else 0
+            avg_gradient = sum(abs(g) for g in gradients)/len(gradients) if gradients else 0
+            
+            # Add combined statistics textbox
+            stats_text = (
+                f"Path Length: {distances[-1]:.2f} km\n"
+                f"Max Gradient: {max_gradient:.1%}\n"
+                f"Avg Gradient: {avg_gradient:.1%}\n"
+                f"Min Elevation: {min_elev:.1f} m\n"
+                f"Avg Elevation: {avg_elev:.1f} m\n"
+                f"Max Elevation: {max_elev:.1f} m"
+            )
+            
+            # Add text box with statistics
+            props = dict(boxstyle='round', facecolor='wheat', alpha=0.7)
+            ax1.text(0.05, 0.95, stats_text, transform=ax1.transAxes, fontsize=10,
+                    verticalalignment='top', bbox=props)
+            
+            # Add legend
+            lines = line1 + line2
+            labels = [l.get_label() for l in lines]
+            handles = lines + [gradient_fill, gradient_fill_neg]
+            labels = ['Elevation', 'Gradient', 'Uphill', 'Downhill']
+            fig.legend(handles, labels, loc='lower center', ncol=4, bbox_to_anchor=(0.5, 0.01))
+            
+            # Adjust the layout to make room for the legend
+            plt.subplots_adjust(bottom=0.15)
+            
+            plt.title(title)
+            plt.grid(True, alpha=0.3)
+            
+            # Save the combined figure
+            import os
+            os.makedirs('plots', exist_ok=True)
+            config_name = title.replace("Railway Path ", "").replace(" Profile", "")
+            config_name = config_name.replace(" ", "_").lower()
+            filename = f'plots/combined_profile_{config_name}.png'
+            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            print(f"Saved combined profile to {filename}")
+            
+            plt.show()
+    return (
+        GRID_SIZE,
+        LineCollection,
+        LinearSegmentedColormap,
+        MAX_ELEVATION_M,
+        MIN_ELEVATION_M,
+        RailwayPathOptimizer,
+        TERRAIN_SIZE_KM,
+        ca,
+        generate_terrain,
+        np,
+        plt,
+    )
+
+
+@app.cell
+def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
     # Generate terrain using the terrain_gen module
     terrain_size = 100
     print("Generating terrain...")
@@ -638,7 +1066,7 @@ def _():
     # (curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight)
     weight_configurations = [
         (1.0, 1.0, 5.0, 0.0, 1.0, "No terrain cost"),  # Focus on gradients and smooth path
-        (1.0, 1.0, 5.0, 1.0, 2.0, "Terrain-aware"),  # More emphasis on path length to avoid excessive detours
+        # (1.0, 1.0, 5.0, 1.0, 2.0, "Terrain aware"),  # More emphasis on path length to avoid excessive detours
         # (5.0, 2.0, 1.0, 1.0, 0.5, "Low Curvature"),  # Prioritize low curvature
         # (1.0, 1.0, 5.0, 5.0, 0.5, "Low Cost"),  # Prioritize low cost
     ]
@@ -647,7 +1075,7 @@ def _():
         curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight, label = weights
 
         print(f"Optimizing path with {label} configuration...")
-        
+
         # For no terrain cost case, use straight line initialization without perturbation
         if terrain_cost_weight == 0:
             n_points = 20  # Fewer points for straight line case
@@ -672,33 +1100,27 @@ def _():
         if x_coords is not None and y_coords is not None:
             # Plot the result
             optimizer.plot_path(x_coords, y_coords, terrain, 
-                                f"Railway Path with {label} Configuration")
+                                f"Railway Path: {label} configuration")
+            # Add the combined profile
+            optimizer.plot_combined_profile(x_coords, y_coords, terrain,
+                                        f"Terrain Elevation and Rail Gradient Profile: {label}")
         else:
             print(f"Failed to optimize path with {label} configuration")
     return (
-        GRID_SIZE,
-        LineCollection,
-        LinearSegmentedColormap,
-        MAX_ELEVATION_M,
-        MIN_ELEVATION_M,
-        RailwayPathOptimizer,
-        TERRAIN_SIZE_KM,
-        base_terrain,
-        ca,
         curvature_change_weight,
         curvature_weight,
         end,
-        generate_terrain,
+        gradient_weight,
         initial_path,
         label,
         n_points,
-        np,
         optimizer,
-        plt,
         start,
         terrain,
         terrain_cost,
         terrain_cost_weight,
+        terrain_height_scale,
+        terrain_size,
         time_weight,
         via_points,
         weight_configurations,
