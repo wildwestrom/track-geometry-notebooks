@@ -14,7 +14,7 @@ def _():
     from terrain_gen import generate_terrain
 
     # Define physical constants and scales
-    TERRAIN_SIZE_KM = 10.0  # 10km × 10km area
+    TERRAIN_SIZE_KM = 50.0 # Length of each side in km
     MIN_ELEVATION_M = 10.0  # 10m above sea level
     MAX_ELEVATION_M = 500.0  # 500m above sea level
     GRID_SIZE = 100  # Number of grid points in each dimension
@@ -161,9 +161,11 @@ def _():
                 opti.subject_to(y[i] <= self.y_bounds[1] - buffer)
 
             max_step = 0.2
+            min_step = 0.01
             for i in range(n_points-1):
                 step_size = ca.sqrt((x[i+1]-x[i])**2 + (y[i+1]-y[i])**2)
                 opti.subject_to(step_size <= max_step)
+                opti.subject_to(step_size >= min_step)  # Enforce minimum step size
                 if i < n_points-2:
                     next_step = ca.sqrt((x[i+2]-x[i+1])**2 + (y[i+2]-y[i+1])**2)
                     opti.subject_to(ca.fabs(step_size - next_step) <= 0.08)
@@ -174,12 +176,10 @@ def _():
 
             boundary_violation = 0
             for i in range(n_points):
-                x_dist_from_min = (x[i] - self.x_bounds[0]) / (self.x_bounds[1] - self.x_bounds[0])
-                x_dist_from_max = (self.x_bounds[1] - x[i]) / (self.x_bounds[1] - self.x_bounds[0])
-                y_dist_from_min = (y[i] - self.y_bounds[0]) / (self.y_bounds[1] - self.y_bounds[0])
-                y_dist_from_max = (self.y_bounds[1] - y[i]) / (self.y_bounds[1] - self.y_bounds[0])
-                boundary_violation += (1/(x_dist_from_min + 1e-3) + 1/(x_dist_from_max + 1e-3) + 
-                                    1/(y_dist_from_min + 1e-3) + 1/(y_dist_from_max + 1e-3))
+                boundary_violation += ca.fmax(0, self.x_bounds[0] - x[i])
+                boundary_violation += ca.fmax(0, x[i] - self.x_bounds[1])
+                boundary_violation += ca.fmax(0, self.y_bounds[0] - y[i])
+                boundary_violation += ca.fmax(0, y[i] - self.y_bounds[1])
 
             # --- Gradient constraints and calculation (on track profile) ---
             gradients = []
@@ -197,23 +197,38 @@ def _():
                 opti.subject_to(gradient <= max_gradient)
                 opti.subject_to(gradient >= -max_gradient)
 
-            # --- Curvature (unchanged) ---
+            # --- Curvature (3D) ---
             curvature = []
             curvature_change = []
             direction_changes = []
             for i in range(1, n_points-1):
                 v1x = x[i] - x[i-1]
                 v1y = y[i] - y[i-1]
+                v1z = z[i] - z[i-1]
                 v2x = x[i+1] - x[i]
                 v2y = y[i+1] - y[i]
-                dot_product = v1x*v2x + v1y*v2y
-                v1_norm = ca.sqrt(v1x**2 + v1y**2)
-                v2_norm = ca.sqrt(v2x**2 + v2y**2)
-                cos_angle = dot_product / (v1_norm * v2_norm + 1e-6)
-                opti.subject_to(cos_angle <= 1)
-                opti.subject_to(cos_angle >= -1)
-                k = 1 - cos_angle
+                v2z = z[i+1] - z[i]
+                # 3D vectors
+                v1 = ca.vertcat(v1x, v1y, v1z)
+                v2 = ca.vertcat(v2x, v2y, v2z)
+                # Cross product
+                cross_x = v1y * v2z - v1z * v2y
+                cross_y = v1z * v2x - v1x * v2z
+                cross_z = v1x * v2y - v1y * v2x
+                cross_norm = ca.sqrt(cross_x**2 + cross_y**2 + cross_z**2)
+                v1_norm = ca.sqrt(v1x**2 + v1y**2 + v1z**2)
+                v2_norm = ca.sqrt(v2x**2 + v2y**2 + v2z**2)
+                v_sum_x = v1x + v2x
+                v_sum_y = v1y + v2y
+                v_sum_z = v1z + v2z
+                v_sum_norm = ca.sqrt(v_sum_x**2 + v_sum_y**2 + v_sum_z**2)
+                denom = v1_norm * v2_norm * v_sum_norm + 1e-8
+                k = 2 * cross_norm / denom
                 curvature.append(k)
+                # For direction change, use angle between v1 and v2 in 3D
+                dot_product = v1x*v2x + v1y*v2y + v1z*v2z
+                cos_angle = dot_product / (v1_norm * v2_norm + 1e-8)
+                cos_angle = ca.fmin(ca.fmax(cos_angle, -1), 1)  # Clamp for safety
                 direction_change = ca.acos(cos_angle) * 180 / np.pi
                 direction_changes.append(direction_change)
                 opti.subject_to(k <= max_curvature)
@@ -266,11 +281,11 @@ def _():
             path_length = sum(ds) * self.scale_factors['distance']  # in km
             time_obj = time_weight * path_length
             elevation_gain_obj = 0.2 * terrain_cost_weight * cumulative_elevation_gain / self.scale_factors['distance']
-            boundary_weight = 0.1
+
             objective = (curvature_obj + curvature_change_obj + 
                        gradient_obj + gradient_change_obj + 
                        cost_obj + elevation_gain_obj + 
-                       time_obj + boundary_weight * boundary_violation)
+                       time_obj + boundary_violation)
             opti.minimize(objective)
 
             # Initial guess
@@ -291,23 +306,23 @@ def _():
             opti.set_initial(z, z_init)
 
             options = {
-                "print_time": False,
+                #"print_time": False,
                 "ipopt": {
-                    "max_iter": 3000,
-                    "tol": 1e-4,
-                    "acceptable_tol": 1e-3,
+                    "max_iter": 1000,
+                    "tol": 1e-2,
+                    "acceptable_tol": 1e-1,
                     "mu_strategy": "adaptive",
                     "hessian_approximation": "limited-memory",
                     "limited_memory_max_history": 50,
                     "bound_push": 0.01,
                     "bound_frac": 0.01,
                     "warm_start_init_point": "yes",
-                    "print_level": 3,
+                    #"print_level": 3,
                     "nlp_scaling_method": "gradient-based",
                     "alpha_for_y": "safer-min-dual-infeas",
                     "recalc_y": "yes",
                     "acceptable_iter": 10,
-                    "acceptable_obj_change_tol": 1e-3,
+                    "acceptable_obj_change_tol": 1e-2,
                     "constr_viol_tol": 1e-4
                 }
             }
@@ -317,6 +332,17 @@ def _():
                 x_coords = sol.value(x)
                 y_coords = sol.value(y)
                 z_coords = sol.value(z)
+                # Print the value of each objective term
+                print("Objective breakdown:")
+                print(f"  curvature_obj:        {sol.value(curvature_obj):.4f}")
+                print(f"  curvature_change_obj: {sol.value(curvature_change_obj):.4f}")
+                print(f"  gradient_obj:         {sol.value(gradient_obj):.4f}")
+                print(f"  gradient_change_obj:  {sol.value(gradient_change_obj):.4f}")
+                print(f"  cost_obj:             {sol.value(cost_obj):.4f}")
+                print(f"  elevation_gain_obj:   {sol.value(elevation_gain_obj):.4f}")
+                print(f"  time_obj:             {sol.value(time_obj):.4f}")
+                print(f"  boundary_violation:   {sol.value(boundary_violation):.4f}")
+                print(f"  TOTAL OBJECTIVE:      {sol.value(objective):.4f}")
                 return x_coords, y_coords, z_coords
             except Exception as e:
                 print(f"Optimization failed: {e}")
@@ -357,7 +383,7 @@ def _():
 
                 terrain_plot = ax.imshow(terrain, extent=extent_km, origin='lower', 
                                        alpha=0.6, cmap=plt.cm.terrain, zorder=1)
-                cbar = plt.colorbar(terrain_plot, ax=ax, label='Elevation (meters above sea level)')
+                plt.colorbar(terrain_plot, ax=ax, label='Elevation (meters above sea level)')
 
                 # Overlay contour lines (in meters)
                 contour_levels = np.linspace(np.min(terrain), np.max(terrain), 20)
@@ -391,7 +417,8 @@ def _():
             if segments:
                 max_abs_gradient = max(abs(min(gradients)), abs(max(gradients)))
                 norm = plt.Normalize(-max_abs_gradient, max_abs_gradient)
-                colors = [(0.8, 0.0, 0.0), (1.0, 1.0, 1.0), (0.8, 0.0, 0.0)]  # Red -> White -> Red
+                # Red (down), White (zero), Blue (up)
+                colors = [(0.8, 0.0, 0.0), (1.0, 1.0, 1.0), (0.0, 0.2, 0.8)]  # Red -> White -> Blue
                 n_bins = 256
                 cmap = LinearSegmentedColormap.from_list("gradient", colors, N=n_bins)
                 lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=3)
@@ -647,9 +674,9 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
                                                           terrain_size=(TERRAIN_SIZE_KM, TERRAIN_SIZE_KM))
     optimizer.terrain_cost = terrain_cost
 
-    # Define start and end points (in km)
-    start = (1.0, 1.0)  # in km
-    end = (9.0, 9.0)    # in km
+    # Define start and end points (normalized coordinates)
+    start = (0.2, 0.2)  # normalized
+    end = (0.8, 0.8)    # normalized
 
     via_points = []
 
@@ -658,7 +685,7 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
     # (curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight)
     weight_configurations = [
         (1.0, 1.0, 1.0, 0.0, 1.0, "No terrain cost"),
-        # (1.0, 1.0, 1.0, 1.0, 2.0, "Terrain aware"),  # More emphasis on path length to avoid excessive detours
+        (1.0, 1.0, 1.0, 1.0, 1.0, "Terrain aware"),  # More emphasis on path length to avoid excessive detours
         # (2.0, 2.0, 1.0, 1.0, 0.5, "Low Curvature"),  # Prioritize low curvature
         # (1.0, 1.0, 1.0, 5.0, 0.5, "Low Cost"),  # Prioritize low cost
     ]
@@ -671,16 +698,16 @@ def _(RailwayPathOptimizer, TERRAIN_SIZE_KM, generate_terrain, np):
         # For no terrain cost case, use straight line initialization without perturbation
         if terrain_cost_weight == 0:
             n_points = 20  # Fewer points for straight line case
-            x_init = np.linspace(start[0]/TERRAIN_SIZE_KM, end[0]/TERRAIN_SIZE_KM, n_points)  # Convert back to 0-1 scale
-            y_init = np.linspace(start[1]/TERRAIN_SIZE_KM, end[1]/TERRAIN_SIZE_KM, n_points)  # Convert back to 0-1 scale
+            x_init = np.linspace(start[0], end[0], n_points)  # Use normalized coordinates directly
+            y_init = np.linspace(start[1], end[1], n_points)  # Use normalized coordinates directly
             initial_path = (x_init, y_init)
         else:
             n_points = 40
             initial_path = None
 
         x_coords, y_coords, z_coords = optimizer.optimize_path(
-            start_point=(start[0]/TERRAIN_SIZE_KM, start[1]/TERRAIN_SIZE_KM),  # Convert back to 0-1 scale
-            end_point=(end[0]/TERRAIN_SIZE_KM, end[1]/TERRAIN_SIZE_KM),    # Convert back to 0-1 scale
+            start_point=start,  # Already normalized
+            end_point=end,      # Already normalized
             via_points=via_points,
             max_curvature=0.3,
             max_gradient=0.15,
