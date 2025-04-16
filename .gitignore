@@ -2,3 +2,4 @@
 .direnv
 __marimo__
 __pycache__
+plots/
