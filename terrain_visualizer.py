@@ -36,13 +36,13 @@ def _(base64, mo, np):
     size_slider = mo.ui.slider(32, 1024, value=128, step=32, label="Terrain size")
     octaves_slider = mo.ui.slider(1, 8, value=4, step=1, label="Octaves")
     initial_frequency_slider = mo.ui.slider(
-        0.0, 10, value=2.5, step=0.1, label="Initial Frequency"
+        0.0, 10, value=4.0, step=0.1, label="Initial Frequency"
     )
     persistence_slider = mo.ui.slider(
         0.01, 1.0, value=0.5, step=0.01, label="Persistence"
     )
     lacunarity_slider = mo.ui.slider(
-        0.1, 10.0, value=2.0, step=0.1, label="Lacunarity"
+        0.1, 10.0, value=2.7, step=0.1, label="Lacunarity"
     )
     smoothing_slider = mo.ui.slider(0, 2, value=0.0, step=0.1, label="Smoothing")
 
@@ -86,7 +86,7 @@ def _(base64, mo, np):
 
 @app.cell
 def _(np, plt, size_slider):
-    def plot_terrain(terrain, points=None, optimal_path=None):
+    def plot_terrain(terrain, points=[], optimal_path=None):
         size = size_slider.value
 
         x = np.linspace(0, 1, size)
@@ -139,7 +139,7 @@ def _(
         persistence_slider.value,
         lacunarity_slider.value,
         smoothing_slider.value,
-        seed=0
+        seed=0,
     )
 
     rel_start_point = (0.2, 0.2)
@@ -152,7 +152,8 @@ def _(
 
 
 @app.cell
-def _():
+def _(generate_terrain, plot_terrain):
+    plot_terrain(generate_terrain())
     return
 
 
