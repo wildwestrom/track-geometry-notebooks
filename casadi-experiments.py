@@ -40,52 +40,36 @@ def _(RailwayPathOptimizer, np):
     # (curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight)
     weight_configurations = [
         (1.0, 1.0, 1.0, 0.0, 1.0, "No terrain cost"),
-        # (1.0, 1.0, 1.0, 0.2, 1.5, "Terrain aware"),  # More emphasis on path length to avoid excessive detours
+        (1.0, 1.0, 1.0, 1.0, 1.0, "Terrain aware"),
         # (2.0, 2.0, 1.0, 1.0, 0.5, "Low Curvature"),  # Prioritize low curvature
         # (1.0, 1.0, 1.0, 5.0, 0.5, "Low Cost"),  # Prioritize low cost
     ]
 
     for weights in weight_configurations:
-        curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight, label = weights
-
+        label = weights[5]
         print(f"Optimizing path with {label} configuration...")
-
-        # For no terrain cost case, use straight line initialization without perturbation
-        if terrain_cost_weight == 0:
-            n_points = 20  # Fewer points for straight line case
-        else:
-            n_points = 40
 
         x_coords, y_coords, z_coords = optimizer.optimize_path(
             start_point=start,  # Already normalized
             end_point=end,  # Already normalized
             max_curvature=0.3,
             max_gradient=0.15,
-            weights=(curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight),
-            n_points=n_points
+            weights=weights,
+            n_points=50
         )
 
         if all(v is not None for v in (x_coords, y_coords, z_coords)):
             coords = np.stack([x_coords, y_coords, z_coords], axis=-1)
-            optimizer.plot_path(coords, terrain, f"Railway Path: {label} configuration")
-            optimizer.plot_combined_profile(coords, terrain, f"Terrain Elevation and Rail Gradient Profile: {label}")
+            optimizer.plot_path(coords, f"Railway Path: {label} configuration")
+            optimizer.plot_combined_profile(coords, f"Terrain Elevation and Rail Gradient Profile: {label}")
         else:
             print(f"Failed to optimize path with {label} configuration")
     return (
         coords,
-        curvature_change_weight,
-        curvature_weight,
         end,
-        gradient_weight,
         label,
-        n_points,
         optimizer,
         start,
-        terrain,
-        terrain_cost,
-        terrain_cost_weight,
-        terrain_size,
-        time_weight,
         weight_configurations,
         weights,
         x_coords,

@@ -9,8 +9,8 @@ from numpy import ndarray
 
 # Define physical constants and scales
 TERRAIN_SIZE_KM: float = 50.0  # Length of each side in km
-MIN_ELEVATION_M: float = 10.0  # 10m above sea level
-MAX_ELEVATION_M: float = 500.0  # 500m above sea level
+MIN_ELEVATION_M: float = 10.0  # m above sea level
+MAX_ELEVATION_M: float = 100.0  # m above sea level
 GRID_SIZE: int = 128  # Number of grid points in each dimension
 DEFAULT_FIGSIZE: tuple[int, int] = (16, 10)
 
@@ -137,7 +137,7 @@ class RailwayPathOptimizer:
         until all segments are <= epsilon. Finally, resample to n_points.
         """
         # Step 1: Start with a straight line
-        num_init = 20
+        num_init = 10
         x_path = np.linspace(start_point[0], end_point[0], num_init).tolist()
         y_path = np.linspace(start_point[1], end_point[1], num_init).tolist()
         points = list(zip(x_path, y_path))
@@ -203,6 +203,8 @@ class RailwayPathOptimizer:
         x_init: ndarray[float] = np.linspace(start_point[0], end_point[0], n_points)
         y_init: ndarray[float] = np.linspace(start_point[1], end_point[1], n_points)
         return x_init, y_init
+
+    # --------------------- BEGIN OPTIMIZER --------------------#
 
     def optimize_path(
         self,
@@ -271,6 +273,11 @@ class RailwayPathOptimizer:
                     + (z_m[i + 1] - z_m[i]) ** 2
                 )
             )
+
+        # Add normalized segment length constraints
+        for i in range(n_points - 1):
+            opti.subject_to(ds[i] >= 0.001)
+            opti.subject_to(ds[i] <= 0.2)
 
         # --- Gradient constraints and calculation (on track profile) ---
         gradients = []
@@ -366,17 +373,14 @@ class RailwayPathOptimizer:
 
         # --- Terrain cost: tunnels, bridges, cuttings, embankments ---
         if terrain_cost_weight == 0:
-            cost_obj = 0
-            elevation_gain_obj = 0
-            terrain_deviation_penalty = 0
-            gradient_flow_penalty = 0
+            terrain_obj = 0
         else:
             tunnel_threshold = -10.0  # meters below terrain
             bridge_threshold = 10.0  # meters above terrain
-            tunnel_cost_per_m = 1000.0
-            bridge_cost_per_m = 500.0
-            excavation_cost_per_m3 = 50.0
-            embankment_cost_per_m3 = 30.0
+            tunnel_cost_per_m = 3000.0
+            bridge_cost_per_m = 1000.0
+            excavation_cost_per_m3 = 70.0
+            embankment_cost_per_m3 = 100.0
             track_width = 10.0  # meters
             terrain_costs = []
             for i in range(n_points - 1):
@@ -433,6 +437,12 @@ class RailwayPathOptimizer:
             gradient_flow_penalty = (
                 terrain_cost_weight * gradient_flow_penalty / max(1, len(gradients) - 1)
             )
+            terrain_obj = (
+                cost_obj
+                + elevation_gain_obj
+                + terrain_deviation_penalty
+                + gradient_flow_penalty
+            )
 
         path_length = sum(ds) / 1000  # in km
         # Compute ideal straight-line 3D distance from start to end in meters, then convert to km
@@ -457,11 +467,8 @@ class RailwayPathOptimizer:
             + curvature_change_obj
             + gradient_deviation_obj
             + gradient_change_obj
-            + cost_obj
-            + elevation_gain_obj
+            + terrain_obj
             + time_obj
-            + terrain_deviation_penalty
-            + gradient_flow_penalty
         )
         opti.minimize(objective)
 
@@ -487,6 +494,39 @@ class RailwayPathOptimizer:
         opti.set_initial(y, y_init)
         opti.set_initial(z, z_init)
 
+        # Compute average segment length of initial guess (in meters)
+        x_init_m = np.array(x_init) * self.scale_factors["distance"] * 1000
+        y_init_m = np.array(y_init) * self.scale_factors["distance"] * 1000
+        z_init_m = np.array(z_init)  # already in meters
+        avg_segment_length = np.mean(
+            [
+                np.sqrt(
+                    (x_init_m[i + 1] - x_init_m[i]) ** 2
+                    + (y_init_m[i + 1] - y_init_m[i]) ** 2
+                    + (z_init_m[i + 1] - z_init_m[i]) ** 2
+                )
+                for i in range(n_points - 1)
+            ]
+        )
+
+        # Add segment length constraints based on initial path (in meters)
+        for i in range(n_points - 1):
+            opti.subject_to(ds[i] >= 0.8 * avg_segment_length)
+            opti.subject_to(ds[i] <= 5.0 * avg_segment_length)
+
+        # Add minimum total path length constraint (at least 90% of initial guess)
+        total_initial_length = np.sum(
+            [
+                np.sqrt(
+                    (x_init_m[i + 1] - x_init_m[i]) ** 2
+                    + (y_init_m[i + 1] - y_init_m[i]) ** 2
+                    + (z_init_m[i + 1] - z_init_m[i]) ** 2
+                )
+                for i in range(n_points - 1)
+            ]
+        )
+        opti.subject_to(sum(ds) >= 0.8 * total_initial_length)
+
         options = {
             "ipopt": {
                 "max_iter": 1000,
@@ -498,7 +538,7 @@ class RailwayPathOptimizer:
                 "bound_push": 0.01,
                 "bound_frac": 0.01,
                 "warm_start_init_point": "yes",
-                # "print_level": 3,
+                "print_level": 5,
                 "nlp_scaling_method": "gradient-based",
                 "alpha_for_y": "safer-min-dual-infeas",
                 "recalc_y": "yes",
@@ -531,15 +571,14 @@ class RailwayPathOptimizer:
         print(f"  curvature_change_obj: {get_val(curvature_change_obj):.4f}")
         print(f"  gradient_deviation_obj: {get_val(gradient_deviation_obj):.4f}")
         print(f"  gradient_change_obj:  {get_val(gradient_change_obj):.4f}")
-        print(f"  cost_obj:             {get_val(cost_obj):.4f}")
-        print(f"  elevation_gain_obj:   {get_val(elevation_gain_obj):.4f}")
+        print(f"  terrain_obj:          {get_val(terrain_obj):.4f}")
         print(f"  path_length:          {get_val(path_length):.4f}")
         print(f"  ideal_path_length:    {get_val(ideal_path_length):.4f}")
         print(f"  time_obj:             {get_val(time_obj):.4f}")
-        print(f"  terrain_deviation_penalty: {get_val(terrain_deviation_penalty):.4f}")
-        print(f"  gradient_flow_penalty: {get_val(gradient_flow_penalty):.4f}")
         print(f"  TOTAL OBJECTIVE:      {get_val(objective):.4f}")
         return x_coords, y_coords, z_coords
+
+    # ---------------------- END OPTIMIZER ---------------------#
 
     def plot_path(self, coords: ndarray, title: str = "Optimized Railway Path"):
         """
@@ -625,7 +664,7 @@ class RailwayPathOptimizer:
             dx = x_km[i + 1] - x_km[i]  # km
             dy = y_km[i + 1] - y_km[i]  # km
             dz = z_coords[i + 1] - z_coords[i]  # meters
-            distance_m = np.sqrt(dx**2 + dy**2) * 1000  # convert km to m
+            distance_m = ca.sqrt(dx**2 + dy**2) * 1000  # convert km to m
             gradient = dz / (distance_m + 1e-6)  # m/m (dimensionless)
             gradients.append(gradient)
             segments.append([(x_km[i], y_km[i]), (x_km[i + 1], y_km[i + 1])])
@@ -647,7 +686,7 @@ class RailwayPathOptimizer:
         # Calculate statistics
         total_length_km = (
             sum(
-                np.sqrt(
+                ca.sqrt(
                     (x_coords[i + 1] - x_coords[i]) ** 2
                     + (y_coords[i + 1] - y_coords[i]) ** 2
                 )
@@ -732,7 +771,7 @@ class RailwayPathOptimizer:
         for i in range(len(x_km) - 1):
             dx = x_km[i + 1] - x_km[i]
             dy = y_km[i + 1] - y_km[i]
-            segment_distance = np.sqrt(dx**2 + dy**2)
+            segment_distance = ca.sqrt(dx**2 + dy**2)
             if segment_distance < 1e-6:
                 continue
             distances.append(distances[-1] + segment_distance)
