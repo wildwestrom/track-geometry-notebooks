@@ -31,6 +31,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
     MIN_ELEVATION_M = 10.0  # 10m above sea level
     MAX_ELEVATION_M = 500.0  # 500m above sea level
     GRID_SIZE = 100  # Number of grid points in each dimension
+    DEFAULT_FIGSIZE = (16, 10)
 
     class RailwayPathOptimizer:
         """
@@ -118,24 +119,68 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                     return 1.0 + 0.2 * (x + y)
             return cost_function
 
+        def trace_contour_path(self, start_point, end_point, n_points=40, bias_strength=0.2):
+            """
+            Trace a path from start_point to end_point by following terrain contours (perpendicular to gradient),
+            with a small bias toward the end point to ensure progress.
+            Returns arrays of x and y coordinates (normalized to [0,1]).
+            """
+            x_path = [start_point[0]]
+            y_path = [start_point[1]]
+            for i in range(1, n_points):
+                x, y = x_path[-1], y_path[-1]
+                # Convert normalized to grid indices
+                x_idx = int(np.clip(x * (self.width - 1), 0, self.width - 1))
+                y_idx = int(np.clip(y * (self.height - 1), 0, self.height - 1))
+                grad_x = self.terrain_gradient[0][y_idx, x_idx]
+                grad_y = self.terrain_gradient[1][y_idx, x_idx]
+                grad_vec = np.array([grad_x, grad_y])
+                # Perpendicular direction (contour following)
+                perp_dir = np.array([-grad_y, grad_x])
+                # Normalize
+                if np.linalg.norm(perp_dir) > 0:
+                    perp_dir = perp_dir / np.linalg.norm(perp_dir)
+                # Bias toward end point
+                to_end = np.array([end_point[0] - x, end_point[1] - y])
+                if np.linalg.norm(to_end) > 0:
+                    to_end = to_end / np.linalg.norm(to_end)
+                # Combine directions
+                step_dir = (1 - bias_strength) * perp_dir + bias_strength * to_end
+                if np.linalg.norm(step_dir) > 0:
+                    step_dir = step_dir / np.linalg.norm(step_dir)
+                # Step size: try to keep spacing roughly even
+                step_size = 1.0 / (n_points - 1)
+                new_x = np.clip(x + step_size * step_dir[0], 0, 1)
+                new_y = np.clip(y + step_size * step_dir[1], 0, 1)
+                x_path.append(new_x)
+                y_path.append(new_y)
+                # Stop if close to end
+                if np.linalg.norm([new_x - end_point[0], new_y - end_point[1]]) < 1e-3:
+                    break
+            # If not enough points, linearly interpolate
+            if len(x_path) < n_points:
+                x_path = np.linspace(x_path[0], end_point[0], n_points)
+                y_path = np.linspace(y_path[0], end_point[1], n_points)
+            return np.array(x_path), np.array(y_path)
+
+        def _get_initial_guess(self, start_point, end_point, n_points, terrain_cost_weight):
+            if terrain_cost_weight > 0:
+                return self.trace_contour_path(start_point, end_point, n_points=n_points)
+            x_init = np.linspace(start_point[0], end_point[0], n_points)
+            y_init = np.linspace(start_point[1], end_point[1], n_points)
+            return x_init, y_init
+
         def optimize_path(self, start_point, end_point, via_points=None, 
                             max_curvature=0.3,
                             max_gradient=0.15,
                             weights=(1.0, 2.0, 1.0, 0.5), 
-                            n_points=40,
-                            initial_path=None):
-            """
-            Optimize a railway path between two points, now with vertical profile.
-            """
-            opti = ca.Opti()
+                            n_points=40):
+            curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight = weights
 
-            # Path coordinates
+            opti = ca.Opti()
             x = opti.variable(n_points)
             y = opti.variable(n_points)
             z = opti.variable(n_points)  # Track elevation (meters)
-
-            # Unpack weights
-            curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight = weights
 
             # Fix start and end points (horizontal and vertical)
             opti.subject_to(x[0] == start_point[0])
@@ -192,6 +237,17 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                 opti.subject_to(gradient <= max_gradient)
                 opti.subject_to(gradient >= -max_gradient)
 
+            # Calculate required average gradient (start to end)
+            total_elevation_change = z[-1] - z[0]
+            total_distance = sum(ds) * self.scale_factors['distance'] * 1000
+            required_gradient = total_elevation_change / (total_distance + 1e-6)
+
+            # Penalize deviation from required average gradient and local changes
+            gradient_deviation_obj = gradient_weight * sum((g - required_gradient)**2 for g in gradients) / len(gradients)
+            # Exponential penalty for local gradient changes near ±4%
+            gradient_changes = [ca.fabs(gradients[i] - gradients[i-1]) for i in range(1, len(gradients))]
+            gradient_change_obj = 0.5 * gradient_weight * sum(ca.exp(gc / 0.04) - 1 for gc in gradient_changes) / max(1, len(gradient_changes))
+
             # --- Curvature (3D) ---
             curvature = []
             curvature_change = []
@@ -235,9 +291,6 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
 
             curvature_obj = curvature_weight * sum(k**2 for k in curvature) / len(curvature)
             curvature_change_obj = curvature_change_weight * sum(dk**2 for dk in curvature_change) / max(1, len(curvature_change))
-            gradient_obj = gradient_weight * sum(g**2 for g in gradients) / len(gradients)
-            gradient_changes = [ca.fabs(gradients[i] - gradients[i-1]) for i in range(1, len(gradients))]
-            gradient_change_obj = 0.5 * gradient_weight * sum(gc**2 for gc in gradient_changes) / max(1, len(gradient_changes))
 
             # --- Terrain cost: tunnels, bridges, cuttings, embankments ---
             tunnel_threshold = -10.0  # meters below terrain
@@ -278,17 +331,13 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             elevation_gain_obj = 0.2 * terrain_cost_weight * cumulative_elevation_gain / self.scale_factors['distance']
 
             objective = (curvature_obj + curvature_change_obj + 
-                       gradient_obj + gradient_change_obj + 
+                       gradient_deviation_obj + gradient_change_obj + 
                        cost_obj + elevation_gain_obj + 
                        time_obj + boundary_violation)
             opti.minimize(objective)
 
-            # Initial guess
-            if initial_path is not None:
-                x_init, y_init = initial_path
-            else:
-                x_init = np.linspace(start_point[0], end_point[0], n_points)
-                y_init = np.linspace(start_point[1], end_point[1], n_points)
+            # Initial guess for path
+            x_init, y_init = self._get_initial_guess(start_point, end_point, n_points, terrain_cost_weight)
             z_init = np.zeros(n_points)
             for i in range(n_points):
                 x_val = min(max(x_init[i], 0), 1)
@@ -331,7 +380,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                 print("Objective breakdown:")
                 print(f"  curvature_obj:        {sol.value(curvature_obj):.4f}")
                 print(f"  curvature_change_obj: {sol.value(curvature_change_obj):.4f}")
-                print(f"  gradient_obj:         {sol.value(gradient_obj):.4f}")
+                print(f"  gradient_deviation_obj: {sol.value(gradient_deviation_obj):.4f}")
                 print(f"  gradient_change_obj:  {sol.value(gradient_change_obj):.4f}")
                 print(f"  cost_obj:             {sol.value(cost_obj):.4f}")
                 print(f"  elevation_gain_obj:   {sol.value(elevation_gain_obj):.4f}")
@@ -354,7 +403,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             """
             Plot the optimized path with real-world units, showing both terrain and track elevation profiles if available.
             """
-            fig, ax = plt.subplots(figsize=(8, 5))
+            fig, ax = plt.subplots(figsize=DEFAULT_FIGSIZE)
 
             # Convert coordinates to kilometers
             x_km = x_coords * self.scale_factors['distance']
@@ -550,7 +599,20 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                             gradients[i] = next_valid
                         else:
                             gradients[i] = mean_gradient
-            fig, ax1 = plt.subplots(figsize=(12, 6))
+            # Compute midpoints for gradient plotting
+            gradient_midpoints = [(distances[i] + distances[i+1]) / 2 for i in range(len(gradients))]
+
+            # For N points, there are N-1 segments and thus N-1 gradients.
+            # For each segment, repeat the left and right endpoint, and the gradient value.
+            step_x = []
+            step_y = []
+            for i in range(len(gradients)):
+                step_x.extend([distances[i], distances[i+1]])
+                step_y.extend([gradients[i], gradients[i]])
+            step_x = np.array(step_x)
+            step_y = np.array(step_y)
+
+            fig, ax1 = plt.subplots(figsize=DEFAULT_FIGSIZE)
             color_terrain = 'gray'
             color_track = 'green'
             ax1.set_xlabel('Distance along path (km)')
@@ -564,31 +626,11 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             ax2 = ax1.twinx()
             color_gradient = 'blue'
             ax2.set_ylabel('Gradient (m/m)', color=color_gradient)
-            # Extend the last gradient to the endpoint for plotting
-            gradient_distances = list(distances[:-1]) + [distances[-1]]
-            gradient_values = list(gradients) + [gradients[-1]]
-
-            gradient_fill = ax2.fill_between(
-                gradient_distances, 
-                gradient_values, 
-                0,
-                where=[g > 0 for g in gradient_values], 
-                color='red', 
-                alpha=0.3, 
-                interpolate=True,
-                label='Uphill'
-            )
-            gradient_fill_neg = ax2.fill_between(
-                gradient_distances, 
-                gradient_values, 
-                0,
-                where=[g <= 0 for g in gradient_values], 
-                color='blue', 
-                alpha=0.3, 
-                interpolate=True,
-                label='Downhill'
-            )
-            line2 = ax2.plot(gradient_distances, gradient_values, '-', color='purple', linewidth=1.5, label='Gradient')
+            # Plot the block plot for gradient, aligned with each segment
+            ax2.plot(step_x, step_y, color='purple', linewidth=1.5, label='Gradient')
+            # Fill between for uphill/downhill using block-aligned arrays
+            ax2.fill_between(step_x, step_y, 0, where=step_y > 0, color='red', alpha=0.3, label='Uphill')
+            ax2.fill_between(step_x, step_y, 0, where=step_y <= 0, color='blue', alpha=0.3, label='Downhill')
             ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'{x:.1%}'))
             ax2.tick_params(axis='y', labelcolor=color_gradient)
             ax2.axhline(y=0, color='gray', linestyle='-', linewidth=0.5)
@@ -612,8 +654,13 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             props = dict(boxstyle='round', facecolor='wheat', alpha=0.7)
             ax1.text(0.05, 0.95, stats_text, transform=ax1.transAxes, fontsize=10,
                     verticalalignment='top', bbox=props)
-            lines = [ax1.get_lines()[0], ax1.get_lines()[1], line2[0], gradient_fill, gradient_fill_neg]
-            labels = ['Terrain Elevation', 'Track Elevation', 'Gradient', 'Uphill', 'Downhill']
+            # Update legend to match new plotting
+            lines = [ax1.get_lines()[0], ax1.get_lines()[1]] + ax2.lines
+            labels = ['Terrain Elevation', 'Track Elevation', 'Gradient']
+            # Add proxy artists for fill_between
+            from matplotlib.patches import Patch
+            lines += [Patch(facecolor='red', alpha=0.3), Patch(facecolor='blue', alpha=0.3)]
+            labels += ['Uphill', 'Downhill']
             fig.legend(lines, labels, loc='lower center', ncol=5, bbox_to_anchor=(0.5, 0.01))
             plt.subplots_adjust(bottom=0.15)
             plt.title(title)
@@ -632,7 +679,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
         x = np.linspace(0, terrain_size[0], width)
         y = np.linspace(0, terrain_size[1], height)
         X, Y = np.meshgrid(x, y)
-        plt.figure(figsize=(8, 6))
+        plt.figure(figsize=DEFAULT_FIGSIZE)
         plt.imshow(terrain, extent=(0, terrain_size[0], 0, terrain_size[1]), origin='lower', cmap='terrain', alpha=0.5)
         plt.colorbar(label='Elevation (m)')
         skip = max(1, width // 30)  # Reduce number of arrows for clarity
@@ -683,6 +730,8 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
 def _(
     RailwayPathOptimizer,
     TERRAIN_SIZE_KM,
+    MIN_ELEVATION_M,
+    MAX_ELEVATION_M,
     generate_terrain,
     np,
     plot_terrain_gradient_vector_field,
@@ -697,12 +746,9 @@ def _(
         seed=42,            # Random seed for reproducibility
     )
 
-    # Scale terrain to a more realistic elevation range (50-500 meters)
-    base_elevation = 50.0  # minimum elevation in meters
-    elevation_range = 500.0  # maximum elevation variation in meters
-    terrain = base_elevation + (terrain * elevation_range)  # This gives us elevations from 50m to 500m
+    terrain = MIN_ELEVATION_M + (terrain * (MAX_ELEVATION_M - MIN_ELEVATION_M))
 
-    print(f"Terrain elevation range: {np.min(terrain):.1f}m to {np.max(terrain):.1f}m")
+    print(f"Terrain elevation range: {MIN_ELEVATION_M:.1f}m to {MAX_ELEVATION_M:.1f}m")
 
     # Create optimizer with the generated terrain
     optimizer = RailwayPathOptimizer(terrain=terrain)
@@ -737,12 +783,8 @@ def _(
         # For no terrain cost case, use straight line initialization without perturbation
         if terrain_cost_weight == 0:
             n_points = 20  # Fewer points for straight line case
-            x_init = np.linspace(start[0], end[0], n_points)  # Use normalized coordinates directly
-            y_init = np.linspace(start[1], end[1], n_points)  # Use normalized coordinates directly
-            initial_path = (x_init, y_init)
         else:
             n_points = 40
-            initial_path = None
 
         x_coords, y_coords, z_coords = optimizer.optimize_path(
             start_point=start,  # Already normalized
@@ -751,8 +793,7 @@ def _(
             max_curvature=0.3,
             max_gradient=0.15,
             weights=(curvature_weight, curvature_change_weight, gradient_weight, terrain_cost_weight, time_weight),
-            n_points=n_points,
-            initial_path=initial_path
+            n_points=n_points
         )
 
         if x_coords is not None and y_coords is not None and z_coords is not None:
@@ -771,9 +812,8 @@ def _(
         elevation_range,
         end,
         gradient_weight,
-        initial_path,
-        label,
         n_points,
+        label,
         optimizer,
         start,
         terrain,
@@ -785,10 +825,6 @@ def _(
         weight_configurations,
         weights,
         x_coords,
-        x_init,
-        y_coords,
-        y_init,
-        z_coords,
     )
 
 
