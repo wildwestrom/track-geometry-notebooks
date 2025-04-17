@@ -6,13 +6,17 @@ from matplotlib.colors import LinearSegmentedColormap
 import os
 from terrain_gen import generate_terrain
 from numpy import ndarray
+from skimage.graph import route_through_array
+from scipy.sparse import lil_matrix
+from scipy.sparse.csgraph import dijkstra
 
 # Define physical constants and scales
 TERRAIN_SIZE_KM: float = 50.0  # Length of each side in km
 MIN_ELEVATION_M: float = 10.0  # m above sea level
-MAX_ELEVATION_M: float = 100.0  # m above sea level
+MAX_ELEVATION_M: float = 500.0  # m above sea level
 GRID_SIZE: int = 128  # Number of grid points in each dimension
-DEFAULT_FIGSIZE: tuple[int, int] = (16, 10)
+DEFAULT_FIGSIZE: tuple[int, int] = (14, 8)
+TEST_INITIAL = False
 
 
 class RailwayPathOptimizer:
@@ -124,72 +128,81 @@ class RailwayPathOptimizer:
 
         return cost_function
 
-    def trace_contour_path(
+    def harsh_gradient_penalty(self, gc):
+        """
+        Quadratic penalty for |gc| <= 0.04, harsh exponential for |gc| > 0.04.
+        Handles both CasADi symbolic and numpy/python float types.
+        """
+        if isinstance(gc, (ca.MX, ca.SX)):
+            abs_gc = ca.fabs(gc)
+            return ca.if_else(
+                abs_gc <= 0.04,
+                10 * gc**2,
+                10 * 0.04**2 + (ca.exp(8 * (abs_gc - 0.04)) - 1),
+            )
+        else:
+            abs_gc = abs(gc)
+            if abs_gc <= 0.04:
+                return 10 * gc**2
+            else:
+                return 10 * 0.04**2 + (np.exp(8 * (abs_gc - 0.04)) - 1)
+
+    def compute_path_djikstras(
         self,
-        start_point: tuple[float, float],
-        end_point: tuple[float, float],
-        n_points: int = 40,
-        bias_strength: float = 0.2,
-        epsilon: float = 0.01,
-    ) -> tuple[ndarray, ndarray]:
+        start,
+        end,
+        n_points,
+        max_grade=0.04,
+    ):
         """
-        Improved: Start with a straight line, then iteratively refine by inserting points along the gradient vector field
-        until all segments are <= epsilon. Finally, resample to n_points.
+        Compute a geodesic (least-cost) path using Dijkstra's algorithm on a grid,
+        penalizing excessive grade using the same logic as the optimizer objective.
+        Uses 4-connectivity. Resamples to n_points.
         """
-        # Step 1: Start with a straight line
-        num_init = 10
-        x_path = np.linspace(start_point[0], end_point[0], num_init).tolist()
-        y_path = np.linspace(start_point[1], end_point[1], num_init).tolist()
-        points = list(zip(x_path, y_path))
-
-        def get_perp_gradient(x, y):
-            x_idx = int(np.clip(x * (self.width - 1), 0, self.width - 1))
-            y_idx = int(np.clip(y * (self.height - 1), 0, self.height - 1))
-            grad_x = self.terrain_gradient[0][y_idx, x_idx]
-            grad_y = self.terrain_gradient[1][y_idx, x_idx]
-            grad_vec = np.array([grad_x, grad_y])
-            # Perpendicular direction (contour following)
-            perp_dir = np.array([-grad_y, grad_x])
-            if np.linalg.norm(perp_dir) > 0:
-                perp_dir = perp_dir / np.linalg.norm(perp_dir)
-            return perp_dir
-
-        # Step 2: Refine path
-        changed = True
-        while changed:
-            changed = False
-            new_points = [points[0]]
-            for i in range(len(points) - 1):
-                p1 = np.array(points[i])
-                p2 = np.array(points[i + 1])
-                dist = np.linalg.norm(p2 - p1)
-                if dist > epsilon:
-                    # Insert midpoint, offset along perpendicular to gradient
-                    mid = (p1 + p2) / 2
-                    perp = get_perp_gradient(mid[0], mid[1])
-                    # Offset by a small fraction of the segment length, scaled by bias_strength
-                    offset = perp * bias_strength * dist
-                    mid_offset = mid + offset
-                    # Clamp to [0,1]
-                    mid_offset = np.clip(mid_offset, 0, 1)
-                    new_points.append(tuple(mid_offset))
-                    changed = True
-                new_points.append(tuple(p2))
-            points = new_points
-        # Step 3: Resample to n_points
-        points = np.array(points)
-        # Compute cumulative distance along the path
-        dists = np.zeros(len(points))
-        for i in range(1, len(points)):
-            dists[i] = dists[i - 1] + np.linalg.norm(points[i] - points[i - 1])
-        total_dist = dists[-1]
-        target_dists = np.linspace(0, total_dist, n_points)
-        x_interp = np.interp(target_dists, dists, points[:, 0])
-        y_interp = np.interp(target_dists, dists, points[:, 1])
-        # Ensure first and last points are exactly start and end
-        x_interp[0], y_interp[0] = start_point[0], start_point[1]
-        x_interp[-1], y_interp[-1] = end_point[0], end_point[1]
-        return np.array(x_interp), np.array(y_interp)
+        terrain = self.terrain
+        height, width = terrain.shape
+        dx = self.scale_factors["distance"] * 1000 / (width - 1)
+        dy = self.scale_factors["distance"] * 1000 / (height - 1)
+        N = height * width
+        adj = lil_matrix((N, N))
+        for i in range(height):
+            for j in range(width):
+                idx = i * width + j
+                elev = terrain[i, j]
+                for di, dj, dist in [(-1, 0, dy), (1, 0, dy), (0, -1, dx), (0, 1, dx)]:
+                    ni, nj = i + di, j + dj
+                    if 0 <= ni < height and 0 <= nj < width:
+                        nidx = ni * width + nj
+                        elev_n = terrain[ni, nj]
+                        dxy = dist
+                        dz = elev_n - elev
+                        grade = dz / (dxy + 1e-6)
+                        penalty = self.harsh_gradient_penalty(grade)
+                        cost = dxy + penalty
+                        adj[idx, nidx] = cost
+        start_idx = int(start[1] * (height - 1)) * width + int(start[0] * (width - 1))
+        end_idx = int(end[1] * (height - 1)) * width + int(end[0] * (width - 1))
+        _, predecessors = dijkstra(
+            csgraph=adj, directed=True, indices=start_idx, return_predecessors=True
+        )
+        path = []
+        cur = end_idx
+        while cur != start_idx and cur != -9999:
+            path.append(cur)
+            cur = predecessors[cur]
+        path.append(start_idx)
+        path = path[::-1]
+        y_path = np.array([p // width for p in path]) / (height - 1)
+        x_path = np.array([p % width for p in path]) / (width - 1)
+        dists = np.zeros(len(x_path))
+        for i in range(1, len(x_path)):
+            dists[i] = dists[i - 1] + np.sqrt(
+                (x_path[i] - x_path[i - 1]) ** 2 + (y_path[i] - y_path[i - 1]) ** 2
+            )
+        dists = dists / dists[-1] if dists[-1] > 0 else dists
+        x_resampled = np.interp(np.linspace(0, 1, n_points), dists, x_path)
+        y_resampled = np.interp(np.linspace(0, 1, n_points), dists, y_path)
+        return x_resampled, y_resampled
 
     def get_initial_guess(
         self,
@@ -199,7 +212,7 @@ class RailwayPathOptimizer:
         terrain_cost_weight: float,
     ) -> tuple[ndarray, ndarray]:
         if terrain_cost_weight > 0:
-            return self.trace_contour_path(start_point, end_point, n_points=n_points)
+            return self.compute_path_djikstras(start_point, end_point, n_points)
         x_init: ndarray[float] = np.linspace(start_point[0], end_point[0], n_points)
         y_init: ndarray[float] = np.linspace(start_point[1], end_point[1], n_points)
         return x_init, y_init
@@ -274,11 +287,6 @@ class RailwayPathOptimizer:
                 )
             )
 
-        # Add normalized segment length constraints
-        for i in range(n_points - 1):
-            opti.subject_to(ds[i] >= 0.001)
-            opti.subject_to(ds[i] <= 0.2)
-
         # --- Gradient constraints and calculation (on track profile) ---
         gradients = []
         elevation_changes = []
@@ -314,10 +322,10 @@ class RailwayPathOptimizer:
         gradient_changes = [
             ca.fabs(gradients[i] - gradients[i - 1]) for i in range(1, len(gradients))
         ]
+
         gradient_change_obj = (
-            0.5
-            * gradient_weight
-            * sum(ca.exp(gc / 0.04) - 1 for gc in gradient_changes)
+            gradient_weight
+            * sum(self.harsh_gradient_penalty(gc) for gc in gradient_changes)
             / max(1, len(gradient_changes))
         )
 
@@ -377,8 +385,11 @@ class RailwayPathOptimizer:
         else:
             tunnel_threshold = -10.0  # meters below terrain
             bridge_threshold = 10.0  # meters above terrain
-            tunnel_cost_per_m = 3000.0
-            bridge_cost_per_m = 1000.0
+            bridge_tunnel_multiplier = (
+                3.0  # Multiplier to make bridges and tunnels more expensive
+            )
+            tunnel_cost_per_m = 10000.0 * bridge_tunnel_multiplier
+            bridge_cost_per_m = 5000.0 * bridge_tunnel_multiplier
             excavation_cost_per_m3 = 70.0
             embankment_cost_per_m3 = 100.0
             track_width = 10.0  # meters
@@ -416,16 +427,7 @@ class RailwayPathOptimizer:
             cost_obj = (
                 terrain_cost_weight * sum(terrain_costs) / max(1, len(terrain_costs))
             )
-            elevation_gain_obj = 0.2 * terrain_cost_weight * cumulative_elevation_gain
-            terrain_deviation_penalty = 0
-            for i in range(n_points):
-                terrain_elev = self.terrain_interpolant(ca.vertcat(x[i], y[i]))
-                deviation = z[i] - terrain_elev
-                # Use a smoother penalty function that increases more gradually
-                terrain_deviation_penalty += ca.fmin(
-                    deviation**2, ca.exp(ca.fabs(deviation) / 5.0) - 1
-                )
-            terrain_deviation_penalty *= terrain_cost_weight
+
             # --- Gradient Flow Penalty using terrain_cost ---
             gradient_flow_penalty = 0
             for i in range(n_points - 1):
@@ -439,57 +441,73 @@ class RailwayPathOptimizer:
             )
             terrain_obj = (
                 cost_obj
-                + elevation_gain_obj
-                + terrain_deviation_penalty
+                + gradient_deviation_obj
+                + gradient_change_obj
                 + gradient_flow_penalty
             )
 
-        path_length = sum(ds) / 1000  # in km
-        # Compute ideal straight-line 3D distance from start to end in meters, then convert to km
-        start_elev = self.terrain_interpolant(
-            ca.vertcat(start_point[0], start_point[1])
-        )
-        end_elev = self.terrain_interpolant(ca.vertcat(end_point[0], end_point[1]))
-        x0_m = start_point[0] * self.scale_factors["distance"] * 1000
-        y0_m = start_point[1] * self.scale_factors["distance"] * 1000
-        x1_m = end_point[0] * self.scale_factors["distance"] * 1000
-        y1_m = end_point[1] * self.scale_factors["distance"] * 1000
-        ideal_path_length = (
-            ca.sqrt(
-                (x0_m - x1_m) ** 2 + (y0_m - y1_m) ** 2 + (start_elev - end_elev) ** 2
-            )
-            / 1000
-        )  # in km
-        time_obj = time_weight * (path_length - ideal_path_length)
+        # --- Improved Travel Time Calculation ---
+        # Parameters for train dynamics
+        max_speed = 80.0  # m/s (about 288 km/h)
+        max_accel = 0.7  # m/s^2 (typical for passenger trains)
+        max_decel = 0.7  # m/s^2 (braking, positive value)
+        max_lateral_accel = 1.0  # m/s^2 (comfort limit)
+        g = 9.81  # m/s^2
 
-        objective = (
-            curvature_obj
-            + curvature_change_obj
-            + gradient_deviation_obj
-            + gradient_change_obj
-            + terrain_obj
-            + time_obj
-        )
+        # Compute curvature-limited speed for each segment
+        v_curve = [max_speed] * (n_points - 1)
+        for i in range(1, n_points - 1):
+            k = curvature[i - 1]  # curvature for segment i (already computed)
+            v_curve[i - 1] = ca.sqrt(max_lateral_accel / (ca.fabs(k) + 1e-8))
+        # Compute gradient-limited speed for each segment (simple traction/braking model)
+        v_grade = [max_speed] * (n_points - 1)
+        for i in range(n_points - 1):
+            g_i = gradients[i]
+            # Uphill: limit by available acceleration
+            v_grade[i] = ca.if_else(
+                g_i > 0, max_speed, ca.sqrt(2 * max_decel / (ca.fabs(g_i) + 1e-8))
+            )
+        # Segment speed limit is the minimum of all constraints
+        v_limit = [ca.fmin(v_curve[i], v_grade[i]) for i in range(n_points - 1)]
+        v_limit = [ca.fmin(v_limit[i], max_speed) for i in range(n_points - 1)]
+
+        # Forward-backward pass for speed profile (CasADi symbolic)
+        v_fwd = [0] * n_points
+        v_fwd[0] = 0  # Start from rest
+        for i in range(n_points - 1):
+            v_possible = ca.sqrt(v_fwd[i] ** 2 + 2 * max_accel * ds[i])
+            v_fwd[i + 1] = ca.fmin(v_possible, v_limit[i])
+        v_bwd = [0] * n_points
+        v_bwd[-1] = 0  # End at rest
+        for i in reversed(range(n_points - 1)):
+            v_possible = ca.sqrt(v_bwd[i + 1] ** 2 + 2 * max_decel * ds[i])
+            v_bwd[i] = ca.fmin(v_possible, v_limit[i])
+        # Actual speed at each segment is the minimum of forward and backward pass
+        v_profile = [ca.fmin(v_fwd[i], v_bwd[i]) for i in range(n_points)]
+        # Compute travel time for each segment
+        travel_times = [ds[i] / (v_profile[i] + 1e-6) for i in range(n_points - 1)]
+        total_travel_time = sum(travel_times)
+        time_obj = time_weight * total_travel_time
+
+        objective = curvature_obj + curvature_change_obj + terrain_obj + time_obj
         opti.minimize(objective)
 
         # Initial guess for path
         x_init, y_init = self.get_initial_guess(
             start_point, end_point, n_points, terrain_cost_weight
         )
-        # Set z_init as a straight line between the endpoint elevations
-        start_elev = float(
-            self.terrain[
-                int(start_point[1] * (self.height - 1)),
-                int(start_point[0] * (self.width - 1)),
+        # Set z_init to follow the terrain elevation along the initial path
+        z_init = np.array(
+            [
+                float(
+                    self.terrain[
+                        int(y_init[i] * (self.height - 1)),
+                        int(x_init[i] * (self.width - 1)),
+                    ]
+                )
+                for i in range(n_points)
             ]
         )
-        end_elev = float(
-            self.terrain[
-                int(end_point[1] * (self.height - 1)),
-                int(end_point[0] * (self.width - 1)),
-            ]
-        )
-        z_init = np.linspace(start_elev, end_elev, n_points)
         opti.set_initial(x, x_init)
         opti.set_initial(y, y_init)
         opti.set_initial(z, z_init)
@@ -512,7 +530,7 @@ class RailwayPathOptimizer:
         # Add segment length constraints based on initial path (in meters)
         for i in range(n_points - 1):
             opti.subject_to(ds[i] >= 0.8 * avg_segment_length)
-            opti.subject_to(ds[i] <= 5.0 * avg_segment_length)
+            opti.subject_to(ds[i] <= 3.0 * avg_segment_length)
 
         # Add minimum total path length constraint (at least 90% of initial guess)
         total_initial_length = np.sum(
@@ -529,11 +547,12 @@ class RailwayPathOptimizer:
 
         options = {
             "ipopt": {
-                "max_iter": 1000,
+                "max_iter": 0 if TEST_INITIAL else 500,
                 "tol": 1e-2,
                 "acceptable_tol": 1e-1,
                 "mu_strategy": "adaptive",
                 "hessian_approximation": "limited-memory",
+                "linear_solver": "mumps",
                 "limited_memory_max_history": 50,
                 "bound_push": 0.01,
                 "bound_frac": 0.01,
@@ -572,8 +591,7 @@ class RailwayPathOptimizer:
         print(f"  gradient_deviation_obj: {get_val(gradient_deviation_obj):.4f}")
         print(f"  gradient_change_obj:  {get_val(gradient_change_obj):.4f}")
         print(f"  terrain_obj:          {get_val(terrain_obj):.4f}")
-        print(f"  path_length:          {get_val(path_length):.4f}")
-        print(f"  ideal_path_length:    {get_val(ideal_path_length):.4f}")
+        print(f"  path_length:          {get_val(total_distance / 1000):.4f}")
         print(f"  time_obj:             {get_val(time_obj):.4f}")
         print(f"  TOTAL OBJECTIVE:      {get_val(objective):.4f}")
         return x_coords, y_coords, z_coords
