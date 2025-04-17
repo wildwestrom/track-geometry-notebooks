@@ -11,7 +11,7 @@ def generate_terrain(
     lacunarity: float = 2.7,
     smoothing: float = 0.0,
     seed: int = 0,
-):
+) -> np.ndarray:
     noise_gen = OpenSimplex(seed)
 
     noise = np.zeros((size, size))
