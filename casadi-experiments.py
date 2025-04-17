@@ -370,13 +370,22 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                 terrain_deviation_penalty += ca.fmin(deviation**2, 
                                                     ca.exp(ca.fabs(deviation)/5.0) - 1)
 
-            # terrain_deviation_weight = 10.0  # Strong fixed penalty
+            # --- Gradient Flow Penalty using terrain_cost ---
+            gradient_flow_penalty = 0
+            for i in range(n_points-1):
+                # Midpoint of segment
+                xm = (x[i] + x[i+1]) / 2
+                ym = (y[i] + y[i+1]) / 2
+                # Use terrain_cost as the penalty at the midpoint
+                gradient_flow_penalty += self.terrain_cost(xm, ym)
+            gradient_flow_penalty = terrain_cost_weight * gradient_flow_penalty / (n_points-1)
 
             objective = (curvature_obj + curvature_change_obj + 
                        gradient_deviation_obj + gradient_change_obj + 
                        cost_obj + elevation_gain_obj + 
                        time_obj + boundary_violation +
-                       terrain_deviation_penalty)
+                       terrain_deviation_penalty +
+                       gradient_flow_penalty)
             opti.minimize(objective)
 
             # Initial guess for path
@@ -440,6 +449,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             print(f"  time_obj:             {get_val(time_obj):.4f}")
             print(f"  boundary_violation:   {get_val(boundary_violation):.4f}")
             print(f"  terrain_deviation_penalty: {get_val(terrain_deviation_penalty):.4f}")
+            print(f"  gradient_flow_penalty: {get_val(gradient_flow_penalty):.4f}")
             print(f"  TOTAL OBJECTIVE:      {get_val(objective):.4f}")
             return x_coords, y_coords, z_coords
 
@@ -773,6 +783,7 @@ def _(
     # Generate base terrain (values in range 0.0-1.0)
     terrain = generate_terrain(
         size=terrain_size,  # Use mostly default settings
+        smoothing=1.0,
         seed=42,            # Random seed for reproducibility
     )
 
