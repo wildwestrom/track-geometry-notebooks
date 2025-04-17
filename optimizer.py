@@ -37,7 +37,7 @@ class RailwayPathOptimizer:
 
         print("Generating terrain...")
         # Generate base terrain (values in range 0.0-1.0)
-        self.terrain = MIN_ELEVATION_M + (
+        terrain = MIN_ELEVATION_M + (
             generate_terrain(
                 size=GRID_SIZE,  # Use mostly default settings
                 smoothing=1.0,
@@ -46,12 +46,13 @@ class RailwayPathOptimizer:
             * MAX_ELEVATION_M
             - MIN_ELEVATION_M
         )
+        self.terrain = terrain
         print(
             f"Terrain elevation range: {MIN_ELEVATION_M:.1f}m to {MAX_ELEVATION_M:.1f}m"
         )
 
         self.terrain_cost = self.create_terrain_cost_from_array(
-            self.terrain,
+            terrain,
             terrain_size=(TERRAIN_SIZE_KM, TERRAIN_SIZE_KM),
         )
 
@@ -488,7 +489,7 @@ class RailwayPathOptimizer:
 
         options = {
             "ipopt": {
-                "max_iter": 0,
+                "max_iter": 1000,
                 "tol": 1e-2,
                 "acceptable_tol": 1e-1,
                 "mu_strategy": "adaptive",
@@ -730,7 +731,7 @@ class RailwayPathOptimizer:
         track_elevations = []
         for i in range(len(x_km) - 1):
             dx = x_km[i + 1] - x_km[i]
-            dy = y_km[i + 1] - y_coords[i]
+            dy = y_km[i + 1] - y_km[i]
             segment_distance = np.sqrt(dx**2 + dy**2)
             if segment_distance < 1e-6:
                 continue
