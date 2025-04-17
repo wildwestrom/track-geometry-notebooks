@@ -2,21 +2,18 @@ import numpy as np
 from opensimplex import OpenSimplex
 from scipy.ndimage import gaussian_filter
 
+
 def generate_terrain(
-    size=128,
-    frequency=4.0,
-    octaves=4,
-    persistence=0.5,
-    lacunarity=2.7,
-    smoothing=0.0,
-    seed=None,
+    size: int = 128,
+    frequency: float = 4.0,
+    octaves: int = 4,
+    persistence: float = 0.5,
+    lacunarity: float = 2.7,
+    smoothing: float = 0.0,
+    seed: int = 0,
 ):
-    # Create a seeded noise generator
-    if seed is not None:
-        noise_gen = OpenSimplex(seed=seed)
-    else:
-        noise_gen = OpenSimplex(0)
-    
+    noise_gen = OpenSimplex(seed)
+
     noise = np.zeros((size, size))
 
     # Generate simplex noise
@@ -25,17 +22,17 @@ def generate_terrain(
             freq = frequency
             value = 0
             amplitude = 1.0
-            
+
             for i in range(octaves):
                 nx = x * freq / size
                 ny = y * freq / size
-                
+
                 # Use the noise generator directly
                 value += amplitude * noise_gen.noise2(nx, ny)
-                
+
                 amplitude *= persistence
                 freq *= lacunarity
-                
+
             noise[y][x] = value
 
     # Normalize to ensure range is exactly 0 to 1
