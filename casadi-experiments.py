@@ -119,17 +119,18 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                     return 1.0 + 0.2 * (x + y)
             return cost_function
 
-        def trace_contour_path(self, start_point, end_point, n_points=40, bias_strength=0.2):
+        def trace_contour_path(self, start_point, end_point, n_points=40, bias_strength=0.2, epsilon=0.01):
             """
-            Trace a path from start_point to end_point by following terrain contours (perpendicular to gradient),
-            with a small bias toward the end point to ensure progress.
-            Returns arrays of x and y coordinates (normalized to [0,1]).
+            Improved: Start with a straight line, then iteratively refine by inserting points along the gradient vector field
+            until all segments are <= epsilon. Finally, resample to n_points.
             """
-            x_path = [start_point[0]]
-            y_path = [start_point[1]]
-            for i in range(1, n_points):
-                x, y = x_path[-1], y_path[-1]
-                # Convert normalized to grid indices
+            # Step 1: Start with a straight line
+            num_init = 20
+            x_path = np.linspace(start_point[0], end_point[0], num_init).tolist()
+            y_path = np.linspace(start_point[1], end_point[1], num_init).tolist()
+            points = list(zip(x_path, y_path))
+
+            def get_perp_gradient(x, y):
                 x_idx = int(np.clip(x * (self.width - 1), 0, self.width - 1))
                 y_idx = int(np.clip(y * (self.height - 1), 0, self.height - 1))
                 grad_x = self.terrain_gradient[0][y_idx, x_idx]
@@ -137,31 +138,46 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                 grad_vec = np.array([grad_x, grad_y])
                 # Perpendicular direction (contour following)
                 perp_dir = np.array([-grad_y, grad_x])
-                # Normalize
                 if np.linalg.norm(perp_dir) > 0:
                     perp_dir = perp_dir / np.linalg.norm(perp_dir)
-                # Bias toward end point
-                to_end = np.array([end_point[0] - x, end_point[1] - y])
-                if np.linalg.norm(to_end) > 0:
-                    to_end = to_end / np.linalg.norm(to_end)
-                # Combine directions
-                step_dir = (1 - bias_strength) * perp_dir + bias_strength * to_end
-                if np.linalg.norm(step_dir) > 0:
-                    step_dir = step_dir / np.linalg.norm(step_dir)
-                # Step size: try to keep spacing roughly even
-                step_size = 1.0 / (n_points - 1)
-                new_x = np.clip(x + step_size * step_dir[0], 0, 1)
-                new_y = np.clip(y + step_size * step_dir[1], 0, 1)
-                x_path.append(new_x)
-                y_path.append(new_y)
-                # Stop if close to end
-                if np.linalg.norm([new_x - end_point[0], new_y - end_point[1]]) < 1e-3:
-                    break
-            # If not enough points, linearly interpolate
-            if len(x_path) < n_points:
-                x_path = np.linspace(x_path[0], end_point[0], n_points)
-                y_path = np.linspace(y_path[0], end_point[1], n_points)
-            return np.array(x_path), np.array(y_path)
+                return perp_dir
+
+            # Step 2: Refine path
+            changed = True
+            while changed:
+                changed = False
+                new_points = [points[0]]
+                for i in range(len(points) - 1):
+                    p1 = np.array(points[i])
+                    p2 = np.array(points[i+1])
+                    dist = np.linalg.norm(p2 - p1)
+                    if dist > epsilon:
+                        # Insert midpoint, offset along perpendicular to gradient
+                        mid = (p1 + p2) / 2
+                        perp = get_perp_gradient(mid[0], mid[1])
+                        # Offset by a small fraction of the segment length, scaled by bias_strength
+                        offset = perp * bias_strength * dist
+                        mid_offset = mid + offset
+                        # Clamp to [0,1]
+                        mid_offset = np.clip(mid_offset, 0, 1)
+                        new_points.append(tuple(mid_offset))
+                        changed = True
+                    new_points.append(tuple(p2))
+                points = new_points
+            # Step 3: Resample to n_points
+            points = np.array(points)
+            # Compute cumulative distance along the path
+            dists = np.zeros(len(points))
+            for i in range(1, len(points)):
+                dists[i] = dists[i-1] + np.linalg.norm(points[i] - points[i-1])
+            total_dist = dists[-1]
+            target_dists = np.linspace(0, total_dist, n_points)
+            x_interp = np.interp(target_dists, dists, points[:,0])
+            y_interp = np.interp(target_dists, dists, points[:,1])
+            # Ensure first and last points are exactly start and end
+            x_interp[0], y_interp[0] = start_point[0], start_point[1]
+            x_interp[-1], y_interp[-1] = end_point[0], end_point[1]
+            return np.array(x_interp), np.array(y_interp)
 
         def get_initial_guess(self, start_point, end_point, n_points, terrain_cost_weight):
             if terrain_cost_weight > 0:
@@ -346,10 +362,21 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             time_obj = time_weight * (path_length - ideal_path_length)
             elevation_gain_obj = 0.2 * terrain_cost_weight * cumulative_elevation_gain
 
+            terrain_deviation_penalty = 0
+            for i in range(n_points):
+                terrain_elev = self.terrain_interpolant(ca.vertcat(x[i], y[i]))
+                deviation = z[i] - terrain_elev
+                # Use a smoother penalty function that increases more gradually
+                terrain_deviation_penalty += ca.fmin(deviation**2, 
+                                                    ca.exp(ca.fabs(deviation)/5.0) - 1)
+
+            # terrain_deviation_weight = 10.0  # Strong fixed penalty
+
             objective = (curvature_obj + curvature_change_obj + 
                        gradient_deviation_obj + gradient_change_obj + 
                        cost_obj + elevation_gain_obj + 
-                       time_obj + boundary_violation)
+                       time_obj + boundary_violation +
+                       terrain_deviation_penalty)
             opti.minimize(objective)
 
             # Initial guess for path
@@ -364,7 +391,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
 
             options = {
                 "ipopt": {
-                    "max_iter": 1000,
+                    "max_iter": 3000,
                     "tol": 1e-2,
                     "acceptable_tol": 1e-1,
                     "mu_strategy": "adaptive",
@@ -383,7 +410,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
                 }
             }
             opti.solver('ipopt', options)
-            
+
             try:
                 sol = opti.solve()
                 x_coords = sol.value(x)
@@ -412,6 +439,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             print(f"  ideal_path_length:    {get_val(ideal_path_length):.4f}")
             print(f"  time_obj:             {get_val(time_obj):.4f}")
             print(f"  boundary_violation:   {get_val(boundary_violation):.4f}")
+            print(f"  terrain_deviation_penalty: {get_val(terrain_deviation_penalty):.4f}")
             print(f"  TOTAL OBJECTIVE:      {get_val(objective):.4f}")
             return x_coords, y_coords, z_coords
 
@@ -470,8 +498,8 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
             if segments:
                 max_abs_gradient = max(abs(min(gradients)), abs(max(gradients)))
                 norm = plt.Normalize(-max_abs_gradient, max_abs_gradient)
-                # Red (down), White (zero), Blue (up)
-                colors = [(0.8, 0.0, 0.0), (1.0, 1.0, 1.0), (0.0, 0.2, 0.8)]  # Red -> White -> Blue
+                # Red (up), White (zero), Blue (down)
+                colors = [(0.0, 0.2, 0.8), (1.0, 1.0, 1.0), (0.8, 0.2, 0.8)]  # Blue -> White -> Red
                 n_bins = 256
                 cmap = LinearSegmentedColormap.from_list("gradient", colors, N=n_bins)
                 lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=3)
@@ -719,6 +747,7 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
         print(f"Saved terrain gradient vector field to {filename}")
         plt.show()
     return (
+        DEFAULT_FIGSIZE,
         GRID_SIZE,
         MAX_ELEVATION_M,
         MIN_ELEVATION_M,
@@ -730,13 +759,12 @@ def _(LineCollection, LinearSegmentedColormap, ca, np, os, plt):
 
 @app.cell
 def _(
+    MAX_ELEVATION_M,
+    MIN_ELEVATION_M,
     RailwayPathOptimizer,
     TERRAIN_SIZE_KM,
-    MIN_ELEVATION_M,
-    MAX_ELEVATION_M,
     generate_terrain,
     np,
-    plot_terrain_gradient_vector_field,
 ):
     # Generate terrain using the terrain_gen module
     terrain_size = 100
@@ -802,14 +830,13 @@ def _(
         else:
             print(f"Failed to optimize path with {label} configuration")
     return (
-        base_elevation,
+        coords,
         curvature_change_weight,
         curvature_weight,
-        elevation_range,
         end,
         gradient_weight,
-        n_points,
         label,
+        n_points,
         optimizer,
         start,
         terrain,
@@ -817,10 +844,11 @@ def _(
         terrain_cost_weight,
         terrain_size,
         time_weight,
-        via_points,
         weight_configurations,
         weights,
         x_coords,
+        y_coords,
+        z_coords,
     )
 
 
