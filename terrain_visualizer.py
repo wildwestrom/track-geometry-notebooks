@@ -9,31 +9,46 @@ def _():
     import marimo as mo
     import numpy as np
     import matplotlib.pyplot as plt
-    from scipy.ndimage import gaussian_filter
-    from hashlib import sha256
-    import base64
-    import casadi as ca
-    from scipy.interpolate import RectBivariateSpline
-    from noise import snoise2
     from terrain_gen import generate_terrain
-    return (
-        RectBivariateSpline,
-        base64,
-        ca,
-        gaussian_filter,
-        generate_terrain,
-        mo,
-        np,
-        plt,
-        sha256,
-        snoise2,
-    )
+
+    return generate_terrain, mo, np, plt
 
 
 @app.cell
-def _(mo, np, seed_value):
-    # Create UI controls
-    global seed_value
+def _(mo):
+    get_seed, set_seed = mo.state(0)
+    return get_seed, set_seed
+
+
+@app.cell
+def _(np, set_seed):
+    def generate_random_seed():
+        rng = np.random.default_rng()
+        seed_value = rng.integers(0, 2**32 - 1, dtype=np.uint32)
+        set_seed(seed_value)
+
+    return (generate_random_seed,)
+
+
+@app.cell
+def _(generate_random_seed, mo):
+    seed_button = mo.ui.button(
+        label="Generate Seed", on_click=lambda _: generate_random_seed()
+    )
+    return (seed_button,)
+
+
+@app.cell
+def _(get_seed, mo):
+    seed_form = mo.ui.text(
+        label="Seed",
+        value=str(get_seed()),
+    ).form(submit_button_label="Update Seed")
+    return (seed_form,)
+
+
+@app.cell
+def _(mo, seed_button, seed_form):
     size_slider = mo.ui.slider(32, 1024, value=128, step=32, label="Terrain size")
     octaves_slider = mo.ui.slider(1, 8, value=4, step=1, label="Octaves")
     initial_frequency_slider = mo.ui.slider(
@@ -42,50 +57,27 @@ def _(mo, np, seed_value):
     persistence_slider = mo.ui.slider(
         0.01, 1.0, value=0.5, step=0.01, label="Persistence"
     )
-    lacunarity_slider = mo.ui.slider(
-        0.1, 10.0, value=2.7, step=0.1, label="Lacunarity"
-    )
+    lacunarity_slider = mo.ui.slider(0.1, 10.0, value=2.7, step=0.1, label="Lacunarity")
     smoothing_slider = mo.ui.slider(0, 2, value=0.0, step=0.1, label="Smoothing")
 
-    get_seed, set_seed = mo.state(0)
-    seed_button = mo.ui.button(label="Generate Seed", on_click=lambda _: _)
-
-    rng = np.random.default_rng()
-    def generate_random_seed():
-        seed_value = rng.integers(0, 2**32 - 1, dtype=np.uint32)
-        print(seed_value)
-        set_seed(seed_value)
-
-    seed_input = mo.ui.text(
-        label="Seed",
-        value=str(get_seed()),
-        debounce=1000,
-        on_change=lambda v: set_seed(int(v)) if v.isdigit() else 0,
+    controls = mo.vstack(
+        [
+            size_slider,
+            initial_frequency_slider,
+            octaves_slider,
+            persistence_slider,
+            lacunarity_slider,
+            smoothing_slider,
+            seed_form,
+            seed_button,
+        ]
     )
-
-    # Create UI layout
-    controls = mo.vstack([
-        size_slider,
-        initial_frequency_slider,
-        octaves_slider,
-        persistence_slider,
-        lacunarity_slider,
-        smoothing_slider,
-        seed_input,
-        seed_button,
-    ])
     return (
         controls,
-        generate_random_seed,
-        get_seed,
         initial_frequency_slider,
         lacunarity_slider,
         octaves_slider,
         persistence_slider,
-        rng,
-        seed_button,
-        seed_input,
-        set_seed,
         size_slider,
         smoothing_slider,
     )
@@ -101,7 +93,7 @@ def _(np, plt, size_slider):
         X, Y = np.meshgrid(x, y)
 
         scale = 1
-        fig = plt.figure(figsize=(5*scale, 4*scale), dpi=128)
+        fig = plt.figure(figsize=(5 * scale, 4 * scale), dpi=128)
 
         ax = fig.add_subplot(111)
         contour = ax.contourf(X, Y, terrain, 50, cmap="terrain", vmin=0, vmax=1.0)
@@ -109,20 +101,35 @@ def _(np, plt, size_slider):
         if len(points) == 2:
             point_x = [p[0] for p in points]
             point_y = [p[1] for p in points]
-            ax.scatter(point_x, point_y, c='red', s=30, marker='o', edgecolors='black', zorder=5)
-
+            ax.scatter(
+                point_x,
+                point_y,
+                c="red",
+                s=30,
+                marker="o",
+                edgecolors="black",
+                zorder=5,
+            )
 
         if optimal_path is not None:
             x_path, y_path = optimal_path
             # Normalize to [0, 1] range for plotting
             x_path_plot = np.array(x_path) / terrain.shape[1]
             y_path_plot = np.array(y_path) / terrain.shape[0]
-            ax.plot(x_path_plot, y_path_plot, color='blue', linewidth=2.5, label='Optimal Path', zorder=4)
+            ax.plot(
+                x_path_plot,
+                y_path_plot,
+                color="blue",
+                linewidth=2.5,
+                label="Optimal Path",
+                zorder=4,
+            )
 
-        ax.set_title('Procedurally Generated Terrain')
+        ax.set_title("Procedurally Generated Terrain")
         fig.colorbar(contour, ax=ax)
 
         return plt.gca()
+
     return (plot_terrain,)
 
 
@@ -139,11 +146,17 @@ def _(
     persistence_slider,
     plot_terrain,
     seed_button,
+    seed_form,
+    set_seed,
     size_slider,
     smoothing_slider,
 ):
     if seed_button.value:
         generate_random_seed()
+
+    if seed_form.value:
+        set_seed(int(seed_form.value))
+
     terrain = generate_terrain(
         size_slider.value,
         initial_frequency_slider.value,
