@@ -31,8 +31,9 @@ def _():
 
 
 @app.cell
-def _(base64, mo, np):
+def _(mo, np, seed_value):
     # Create UI controls
+    global seed_value
     size_slider = mo.ui.slider(32, 1024, value=128, step=32, label="Terrain size")
     octaves_slider = mo.ui.slider(1, 8, value=4, step=1, label="Octaves")
     initial_frequency_slider = mo.ui.slider(
@@ -46,20 +47,20 @@ def _(base64, mo, np):
     )
     smoothing_slider = mo.ui.slider(0, 2, value=0.0, step=0.1, label="Smoothing")
 
+    get_seed, set_seed = mo.state(0)
+    seed_button = mo.ui.button(label="Generate Seed", on_click=lambda _: _)
 
-    seed_value = "asdfffdas"
-
+    rng = np.random.default_rng()
     def generate_random_seed():
-        rng = np.random.default_rng()
-        dist = rng.normal(loc=8.0, scale=4)
-        new_seed = rng.bytes(dist)
-        seed_str = base64.b64encode(new_seed).decode()
-        print(seed_str)
-        return seed_str
+        seed_value = rng.integers(0, 2**32 - 1, dtype=np.uint32)
+        print(seed_value)
+        set_seed(seed_value)
 
     seed_input = mo.ui.text(
         label="Seed",
-        value=seed_value,
+        value=str(get_seed()),
+        debounce=1000,
+        on_change=lambda v: set_seed(int(v)) if v.isdigit() else 0,
     )
 
     # Create UI layout
@@ -69,16 +70,22 @@ def _(base64, mo, np):
         octaves_slider,
         persistence_slider,
         lacunarity_slider,
+        smoothing_slider,
+        seed_input,
+        seed_button,
     ])
     return (
         controls,
         generate_random_seed,
+        get_seed,
         initial_frequency_slider,
         lacunarity_slider,
         octaves_slider,
         persistence_slider,
+        rng,
+        seed_button,
         seed_input,
-        seed_value,
+        set_seed,
         size_slider,
         smoothing_slider,
     )
@@ -122,16 +129,21 @@ def _(np, plt, size_slider):
 @app.cell
 def _(
     controls,
+    generate_random_seed,
     generate_terrain,
+    get_seed,
     initial_frequency_slider,
     lacunarity_slider,
     mo,
     octaves_slider,
     persistence_slider,
     plot_terrain,
+    seed_button,
     size_slider,
     smoothing_slider,
 ):
+    if seed_button.value:
+        generate_random_seed()
     terrain = generate_terrain(
         size_slider.value,
         initial_frequency_slider.value,
@@ -139,7 +151,7 @@ def _(
         persistence_slider.value,
         lacunarity_slider.value,
         smoothing_slider.value,
-        seed=0,
+        seed=int(get_seed()),
     )
 
     rel_start_point = (0.2, 0.2)
@@ -152,8 +164,7 @@ def _(
 
 
 @app.cell
-def _(generate_terrain, plot_terrain):
-    plot_terrain(generate_terrain())
+def _():
     return
 
 
