@@ -29,11 +29,11 @@ The problem arising is the design of a road between two given points \(a, b \in 
 the vector of the decision variables in the alignment optimization problem.
 Moreover, we denote by \(C_{\mathbf{x}^N} \subset \mathbb{R}^2\) the curve (path of the road) determined by \(\mathbf{x}^N\).
 
-![](media/image5.png)
+![](figures/fig_1.png)
 
 Figure 1: Horizontal road alignment connecting two terminals a and b. The decision variables (components of vector \(\mathbf{x}^N\)) are shown. The constructed path (\(C_{\mathbf{x}^N}\)) is plotted and the tangents are also plotted in dashed line.
 
-![](media/image6.png)
+![](figures/fig_2.png)
 
 Figure 2: Data and decision variables if the horizontal road alignment joins with a circular curve at initial point (a) and/or with a straight path at final point (b).
 
@@ -42,7 +42,7 @@ Figure 2: Data and decision variables if the horizontal road alignment joins wit
 1. If at point \(a\) (respectively \(b\)) the path joins with a circular curve of radius \(R_a \in (0, +\infty)\) (resp. \(R_b\)) with a given orientation, decision variables \(x_1\) and \(y_1\) (resp. \(x_n\) and \(y_n\)) must be replaced (see [23]) by \(\phi_1 \in [0, 2\pi]\) and \(d_1 \ge 0\) (resp. \(\phi_N\) and \(d_n\)) representing the azimuth of the first (resp. last) tangent and the distance from the connection point tangent-clothoid to the first (resp. last) vertex (see Fig. 2a).
 2. If at point \(a\) (respectively \(b\)) the path connects with a straight section with azimuth \(\phi_a \in [0, 2\pi]\) (resp. \(\phi_b\)), the decision variables \(x_1\) and \(y_1\) (resp. \(x_n\) and \(y_n\)) should be replaced by \(d_1 \ge 0\) (resp. \(d_n\)) which represents the distance from point \(a\) (resp. \(b\)) to the first (resp. last) vertex (see Fig. 2b).
 
-![](media/image7.png)
+![](figures/fig_3.png)
 
 Figure 3: Naming convention of variables involved in a horizontal road alignment.
 
@@ -251,6 +251,11 @@ Table 1: Numerical results obtained for problem detailed in Section 4.1.
 
 **Remark 3.** The SQP algorithm provides very good solutions in this case. However, it should be noted that the convexity of the objective function is not guaranteed in a general case and local minimizers can be detected. In that situation, global optimization methods should be considered. In the same way, other optimization algorithms, such as heuristic or metaheuristic methods, should be used in case of noisy and non-differentiable cost functions (see [17]).
 
+![](figures/fig_4.png)
+
+Figure 4: Optimal layouts for \(N = 1\) (blue), \(N = 2\) (red) and \(N = 3\) (green), tangents and restricted areas, corresponding to problem detailed in Section 4.1.
+
+
 ### 4.2. Minimizing slope and length
 
 In the second example we seek for the shortest horizontal alignment minimizing slopes. Let us assume that we have a function \(H(x, y)\) giving the height above sea level (\(km\)), of every point of \(\Omega\).
@@ -266,6 +271,10 @@ J_N(\mathbf{x}^N) = \int_0^{L(\mathbf{x}^N)} \left(\epsilon + (1 - \epsilon) \le
 where
 - \(\epsilon \in [0, 1]\) is a weight parameter that quantifies the relevance of length of the layout versus its slope (if the value of \(\epsilon\) is close to zero, minimizing the slope is the main objective, and if it is close to one, the main objective lies to obtain a short layout).
 - Function \(\sigma_{\mathbf{x}^N}(s) = (\sigma_1(s), \sigma_2(s))\) is for each case, the parametrization of \(C_{\mathbf{x}^N}\) given in Algorithm 1.
+
+![](figures/fig_5.png)
+
+Figure 5: Terrain of domain \(\Omega\) for problem detailed in Section 4.2: (a) Contour lines of height \(H(x, y)\); (b) Graphic representation of height \(H(x, y)\).
 
 To show the good performance of this formulation we have chosen the following academical example: as physical domain we have \(\Omega = [-1, 6] \times [-2, 6]\) and we seek for a road with terminals \(a = (0.25, 1)\) and \(b = (4, 2)\). The orography of the domain, given by function \(H(x, y)\) detailed in Appendix 1, is shown in Fig. 5. We have chosen \(\epsilon = 10^{-3}\) as weight parameter between length and slope. Keeping in mind \(X_{ad}^N\) and \(J_N\) given in (8) and (9), respectively, we solve problem (6), for \(N = 1, 2, 3\), using again a SQP method. The best solution is obtained for \(N = 3\) and the numerical results are shown in Table 2. The optimal road alignments are shown in Fig. 6. It exemplifies how the horizontal road alignments cross the contour lines. The goodness of obtained solutions can be also regarded in Fig. 7, where the layout of those optimal solutions are plotted in a 3D vision. In this example, the computation time for the three alignments took about 854 seconds CPU time.
 If only one turn is allowed (\(N = 1\)), the optimal solution lies in circumventing the mountains doing a substantial detour adjusting the route to go roughly at the same high level. This leads to a huge circular curve which can be not desirable from a “road design” point of view. However shows the good behaviour of the proposed method (in this situation, to use this method from a more realistic point of view, the constraints defining the admissible set \(X_{ad}^N\) must be reviewed, including, for instance, constraints over maximum lengths of circular curves).
@@ -285,6 +294,15 @@ Table 2: Numerical results obtained for problem detailed in Section 4.2.
 |   | (2.33, 1.51)          | 0.687   | 0.046       | 0.736         | 0.205         |             |            |
 |   | (3.55, 2.06)          | 0.225   | 0.138       | 0.095         | 0.412         |             |            |
 |   |                      |         |             |               | 0.346         |             |            |
+
+![](figures/fig_6.png)
+
+Figure 6: Contour lines and optimal layouts for problem detailed in Section 4.2: \(N = 1\) (red), \(N = 2\) (magenta), \(N = 3\) (black).
+
+![](figures/fig_7.png)
+
+Figure 7: 3D view of computed solutions for problem detailed in Section 4.2: optimal layout for \(N = 1\) (red), \(N = 2\) (magenta) and \(N = 3\) (black).
+
 
 If more than one turn is permitted, the optimal solution turns out a layout going through the mountains, heavily decreasing the length of the path. It also can be seen that in both cases (\(N = 2\) and \(N = 3\)) the layout tries to avoid steep slopes, obtaining, as it might be expected, that the alignment with 3 turns (\(N = 3\)) is the best solution.
 
@@ -340,6 +358,14 @@ function by using a cubic spline interpolation (see [2]).
 *   **Step 3:** Taking \(d_{max} = 0.07\) km, from \(Y_{old}\) built in Step 2, we define function \(p(x, y)\) given by (10), (see Fig. 8(b)), and \(J^N\) by (7).
 *   **Step 4:** Given the admissible set \(X_{ad}^N\) (Step 1) and function \(J^N\) (Step 3), for each \(N = 1, 2, \dots\), we solve the problem (6) by using again a SQP method.
 
+![](figures/fig_8.png)
+
+Figure 8: (a) Plot of \(p_{y_0}(y)\) given by (11). (b) Graphic of price function \(p(x, y)\) for problem detailed in Section 5.1.
+
+![](figures/fig_9.png)
+
+Figure 9: Case study: Larraga-Lerín road (NA601), Spain. Old layout (solid burgundy red) and current layout (dashed yellow) opened in December 2007.
+
 The complete processing time for the first four problems (\(N \leq 4\)) took about 37 seconds CPU time. As Table 3 shows, the best option for the road improvement is the one with four turns (\(N = 4\)). The optimal layouts computed are plotted in Fig. 10. It shows that, as the number of turns is increased, a better adjustment to the old layout is obtained. For \(N = 1\) as only one turn is allowed, the optimal solution lies in intersect the longest straight sector of the old path. Finally, in Fig. 11 we compare the current road improvement versus our proposal obtained with \(N = 3\). It shows that both are similar. This is a crucial and relevant remark and make us believe that the methodology proposed can be a good way to deal with improving alignments in road reconstruction projects as the one introduced in this section.
 
 Table 3: Numerical results obtained for problem detailed in Section 5.1. Vertices \(v_i\) are given in ERTS89 coordinates (km).
@@ -360,6 +386,14 @@ Table 3: Numerical results obtained for problem detailed in Section 5.1. Vertice
 |   | (588.846, 4706.078)   | 0.300   | 0.374       | 0.080     | 0.100     |       |       |
 |   | (589.234, 4706.051)   | 0.300   | 0.428       | 0.080     | 0.100     |       |       |
 |   |                      |         |             |           | 0.521     |       |       |
+
+![](figures/fig_10.png)
+
+Figure 10: Case Study: Larraga-Lerín road (NA601), Spain, used to validate our model. Old road (dashed burgundy red) and optimal layouts obtained for different number of turns (values of \(N\)).
+
+![](figures/fig_11.png)
+
+Figure 11: Case Study: Larraga-Lerín road (NA601), Spain, used to validate our model. Current layout (dashed yellow) and optimal layout obtained for \(N = 3\) (solid green).
 
 ## 6. Conclusions
 
