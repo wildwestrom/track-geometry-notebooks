@@ -32,22 +32,23 @@
                 in
                 {
                   # https://devenv.sh/reference/options/
-                  packages = [
-                    pkgs.stdenv.cc.cc.lib
-                    pkgs.watchdog
+                  packages = with pkgs; [
+                    stdenv.cc.cc.lib
+                    watchdog
+                    libz
+                    pyright
                   ];
 
-                  # https://devenv.sh/languages/
+                  enterShell = ''
+                    export USE_EXTERNAL_RAYLIB=1
+                  '';
+
                   languages.python.enable = true;
-                  languages.python.package = pythonPackages.python;
+                  languages.python.package = pkgs.python313;
                   languages.python.venv.enable = true;
                 }
               )
             ];
-            # shellHook = ''
-            #   # fixes libstdc++ issues and libgl.so issues
-            #   # LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib/:/run/opengl-driver/lib/
-            # '';
           };
         }
       );

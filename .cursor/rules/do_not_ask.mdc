@@ -5,7 +5,6 @@ alwaysApply: true
 ---
 # Don't ask to fix, just do it
 
-My IDE will let me see accept or reject your fixes so if you think 
-you need to ask whether I want you to fix my code don't hesitate and just apply the fix.
+My IDE will let me see accept or reject your fixes so if you think you need to ask whether I want you to fix my code don't hesitate and just apply the fix.
 
 If I can make a choice on what kind of fix I want, only then ask me before applying the fix.

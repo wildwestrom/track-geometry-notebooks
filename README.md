@@ -4,13 +4,23 @@ A Python-based project for optimizing railway track planning through procedurall
 
 ## Project Overview
 
-This project aims to find optimal railway paths through procedurally generated terrain by minimizing a combination of:
-- Curvature (for passenger comfort)
-- Change in curvature (for smoothness)
-- Construction cost (based on terrain elevation)
-- Travel time (a function of curvature, distance, and gradient)
+I'd like to create a limited scope prototype that allows for creating MVC splines like in spiro.c/spiro.h but without `libspiro`'s limitations. The major limitation of `libspiro` is that it doesn't truly solve the MVC functional, and it only generates planar curves. The calculations must be truly 3D as opposed to 2.5D, so that torsion, not just curvature, can be taken into account.
 
-The system uses procedural terrain generation and numerical optimization to create realistic landscapes and determine the best possible routes for railway construction.
+The specific function I'd like to optimize for is
+
+$$ E_{SpaceMVC}[\kappa(s),\tau(s)] = \int_0^l (\kappa')^2 + (\tau')^2 ds $$
+
+One application I'd like to use this for is high speed transportation. In particular, the tracks for superconducting maglev trains. These vehicles can reach speeds of up to 600km/h so if the track should have curves, then the curves must be VERY smooth (G4 continuity, minimizing curvature and torsion).
+
+The workflow for this type of program should be something like this: 
+- Set a series of control points
+- See an approximation of the route
+- Edit/add control points to match constraints of the project
+- See the route approximation again
+
+The visualizations (top-down alignment, gradient, elevation, curvature, forces, speed limits, etc.) should guide the user as to what choices to make, but the initial path should be optimal as the MVC is already a sort of optimization.
+
+Control points example: [end]-[straight-to-curve]-[curve-point]-[curve-to-straight]-[straight-to-curve]-[curve-point]-[curve-point]-[curve-to-straight]-[end]
 
 ## Core Components
 
