@@ -29,10 +29,22 @@ The problem arising is the design of a road between two given points \(a, b \in 
 the vector of the decision variables in the alignment optimization problem.
 Moreover, we denote by \(C_{\mathbf{x}^N} \subset \mathbb{R}^2\) the curve (path of the road) determined by \(\mathbf{x}^N\).
 
+![](media/image5.png)
+
+Figure 1: Horizontal road alignment connecting two terminals a and b. The decision variables (components of vector \(\mathbf{x}^N\)) are shown. The constructed path (\(C_{\mathbf{x}^N}\)) is plotted and the tangents are also plotted in dashed line.
+
+![](media/image6.png)
+
+Figure 2: Data and decision variables if the horizontal road alignment joins with a circular curve at initial point (a) and/or with a straight path at final point (b).
+
 **Remark 1.** If at one end \(a\) or \(b\) (or both) the road to be designed must connect with a given path, the decision variables must undergo small modifications:
 
-1. If at point \(a\) (respectively \(b\)) the path joins with a circular curve of radius \(R_a \in (0, +\infty)\) (resp. \(R_b\)) with a given orientation, decision variables \(x_1\) and \(y_1\) (resp. \(x_N\) and \(y_N\)) must be replaced (see [23]) by \(\phi_1 \in [0, 2\pi]\) and \(d_1 \ge 0\) (resp. \(\phi_N\) and \(d_N\)) representing the azimuth of the first (resp. last) tangent and the distance from the connection point tangent-clothoid to the first (resp. last) vertex (see Fig. 2a).
-2. If at point \(a\) (respectively \(b\)) the path connects with a straight section with azimuth \(\phi_a \in [0, 2\pi]\) (resp. \(\phi_b\)), the decision variables \(x_1\) and \(y_1\) (resp. \(x_N\) and \(y_N\)) should be replaced by \(d_1 \ge 0\) (resp. \(d_N\)) which represents the distance from point \(a\) (resp. \(b\)) to the first (resp. last) vertex (see Fig. 2b).
+1. If at point \(a\) (respectively \(b\)) the path joins with a circular curve of radius \(R_a \in (0, +\infty)\) (resp. \(R_b\)) with a given orientation, decision variables \(x_1\) and \(y_1\) (resp. \(x_n\) and \(y_n\)) must be replaced (see [23]) by \(\phi_1 \in [0, 2\pi]\) and \(d_1 \ge 0\) (resp. \(\phi_N\) and \(d_n\)) representing the azimuth of the first (resp. last) tangent and the distance from the connection point tangent-clothoid to the first (resp. last) vertex (see Fig. 2a).
+2. If at point \(a\) (respectively \(b\)) the path connects with a straight section with azimuth \(\phi_a \in [0, 2\pi]\) (resp. \(\phi_b\)), the decision variables \(x_1\) and \(y_1\) (resp. \(x_n\) and \(y_n\)) should be replaced by \(d_1 \ge 0\) (resp. \(d_n\)) which represents the distance from point \(a\) (resp. \(b\)) to the first (resp. last) vertex (see Fig. 2b).
+
+![](media/image7.png)
+
+Figure 3: Naming convention of variables involved in a horizontal road alignment.
 
 ### 2.2. The arc length parametrization
 
@@ -45,8 +57,8 @@ Taking into account that \(C_{\mathbf{x}^N} \subset \mathbb{R}^2\) must be the u
 * **Azimuth of tangent \(j\):**
   \[
   \phi_j(\mathbf{x}^N) = \begin{cases}
-  \operatorname{acos}\left(\frac{y_j - y_{j-1}}{\sqrt{(x_j - x_{j-1})^2 + (y_j - y_{j-1})^2}}\right) & \text{if } x_j - x_{j-1} \ge 0 \\
-  2\pi - \operatorname{acos}\left(\frac{y_j - y_{j-1}}{\sqrt{(x_j - x_{j-1})^2 + (y_j - y_{j-1})^2}}\right) & \text{if } x_j - x_{j-1} < 0
+  &&\operatorname{acos}\left(y_j - y_{j-1}\right) & \text{if } x_j - x_{j-1} \ge 0 \\
+  2\pi &-&\operatorname{acos}\left(y_j - y_{j-1}\right) & \text{if } x_j - x_{j-1} < 0
   \end{cases}
   \]
 * **Difference of the azimuth between tangents \(i\) and \(i+1\):**
@@ -70,7 +82,7 @@ Taking into account that \(C_{\mathbf{x}^N} \subset \mathbb{R}^2\) must be the u
   \]
   It can be clearly seen that (regarding [23]):
   \[
-  \overline{tp_i} = \int_0^{L_i^C} \cos\left(\frac{\tau^2}{2R_i L_i^C}\right) d\tau, \quad \overline{p\hat{f_i}} = \int_0^{L_i^C} \sin\left(\frac{\tau^2}{2R_i L_i^C}\right) d\tau.
+  \overline{tp_i} = \int_0^{L_i^C} \cos\left(\frac{\tau^2}{2R_i L_i^C}\right) d\tau, \quad \overline{pf_i} = \int_0^{L_i^C} \sin\left(\frac{\tau^2}{2R_i L_i^C}\right) d\tau.
   \]
   \[
   \overline{ph_i} = \overline{pf_i} \tan\left(\frac{\theta_i - \omega_i}{2}\right), \quad \overline{hv_i} = \left(R_i + \frac{\overline{pf_i}}{\cos\left(\frac{\theta_i - \omega_i}{2}\right)}\right) \frac{\sin\left(\frac{\omega_i}{2}\right)}{\sin\left(\frac{\pi - \theta_i}{2}\right)}
@@ -152,83 +164,55 @@ Thus, the total length of the road alignment is given by \(L(\mathbf{x}^N) = L_{
 
 ## 3. Optimal design of horizontal alignment: a general formulation
 
-3
-Optimal design of horizontal alignment: a general formulation
-Constraints (3)-(5) guarantee that CxN ⊂Ωis a well defined road alignment but, obviously, not all
-paths have to be admissible. For instance, each country legislation usually has legal constraints over the
-elements of the layout (bounds over the length of the clothoids and/or the straight segments, some kind
-of relationship between radii of two consecutive curves, etc., see for example, [1]). Other usual constraints
-are due to the existence of some regions into Ωwhere the route must not cross and others where going
-through is prescribed. In a general way, all these restrictions, can be gathered in the set
-Cad = {C ⊂R2, such that C is an admissible path for the new road}.
-The set Cad depends on the particular problem we are dealing, and from it, we define the admissible set
-in the following way:
-XN
-ad =
-{
-xN ∈R4N holding (3)-(5) and such that CxN ∈Cad
-}
-.
-On the other hand, the aim pursued is to design a road alignment that, under certain technical aspects,
-turns out to be optimal (minimizing length, earthwork, expropriation costs, environmental impact, ...).
-The definition and the calculation of the objective function are crucial in any practical application. In the
-aim of seeking for a simple and general formulation of the problem, we introduce a function F : Cad −→R
-giving the cost (economic, environmental, ...) of every path. Therefore we define, JN : R4N −→R as
-JN(xN) = F(CxN ),
-and the problem of designing the optimal horizontal road alignment connecting a and b, consists of solving
-the problem
-min
-xN∈XN
-ad
-JN(xN),
-(6)
-for each N = 1, 2, . . ., and choosing the CxN corresponding with the lowest value.
-The mathematical function F (just like the set XN
-ad) is characteristic for each particular problem, and
-obtaining a good expression of F (bringing together all existing costs) can be a difficult task in many
-practical applications. For example, in [20] earthwork cost is taken into account by means of a complete
-vertical alignment subproblem. In this paper, to define function F we propose that every point of the
-domain Ωhas a price (cost), so, in a way that there exists a function p(x, y) which gives the price of the
-road passing through (x, y) ∈Ω. Adding the prices of all the locations which the road goes through, we
-have the total cost of the layout given by
-F(C) =
-∫
-C
-p(x, y) dσ.
-In this case, taking into account that function σxN (given by Algorithm 1) is the parametrization of CXN
-in terms of the arc length parameter, the objective function JN is given by
-JN(xN) =
-∫L(xN)
-0
-p(σxN (s)) ds,
-(7)
+Constraints (3)-(5) guarantee that \(C_{\mathbf{x}^N} \subset \mathbb{R}^2\) is a well defined road alignment but, obviously, not all paths have to be admissible. For instance, each country legislation usually has legal constraints over the elements of the layout (bounds over the length of the clothoids and/or the straight segments, some kind of relationship between radii of two consecutive curves, etc., see for example, [1]). Other usual constraints are due to the existence of some regions into \(\mathbb{R}^2\) where the route must not cross and others where going through is prescribed. In a general way, all these restrictions, can be gathered in the set
+\[
+C_{ad} = \{C \subset \mathbb{R}^2, \text{ such that } C \text{ is an admissible path for the new road}\}.
+\]
+The set \(C_{ad}\) depends on the particular problem we are dealing, and from it, we define the admissible set in the following way:
+\[
+X_{ad} = \{x^N \in \mathbb{R}^{4N} \text{ holding (3)-(5) and such that } C_{\mathbf{x}^N} \in C_{ad}\}.
+\]
+
+On the other hand, the aim pursued is to design a road alignment that, under certain technical aspects, turns out to be optimal (minimizing length, earthwork, expropriation costs, environmental impact, ...). The definition and the calculation of the objective function are crucial in any practical application. In the aim of seeking for a simple and general formulation of the problem, we introduce a function \(F : C_{ad} \to \mathbb{R}\) giving the cost (economic, environmental, ...) of every path. Therefore we define, \(J_N : \mathbb{R}^{4N} \to \mathbb{R}\) as
+\[
+J_N(\mathbf{x}^N) = F(C_{\mathbf{x}^N}),
+\]
+and the problem of designing the optimal horizontal road alignment connecting a and b, consists of solving the problem
+\[
+\min_{\mathbf{x}^N \in X_{ad}} J_N(\mathbf{x}^N),
+\]
+for each \(N = 1, 2, \dots\), and choosing the \(C_{\mathbf{x}^N}\) corresponding with the lowest value.
+The mathematical function \(F\) (just like the set \(X_{ad}^N\)) is characteristic for each particular problem, and obtaining a good expression of \(F\) (bringing together all existing costs) can be a difficult task in many practical applications. In this paper, we propose that every point of the domain \(\Omega\) has a price (cost), so, in a way that there exists a function \(p(x, y)\) which gives the price of the road passing through \((x, y) \in \Omega\). Adding the prices of all the locations which the road goes through, we have the total cost of the layout given by
+\[
+F(C) = \int_C p(x, y) d\sigma.
+\]
+In this case, taking into account that function \(\sigma_{\mathbf{x}^N}\) (given by Algorithm 1) is the parametrization of \(C_{\mathbf{x}^N}\) in terms of the arc length parameter, the objective function \(J_N\) is given by
+\[
+J_N(\mathbf{x}^N) = \int_0^{L(\mathbf{x}^N)} p(\sigma_{\mathbf{x}^N}(s)) ds,
+\]
 which can be evaluated by using a suitable numerical integration formula.
-The concept of price, given by function p, should be understood as a general function that models a
-wide range of possibilities: it can be economic (price of expropriation, asphalt cost, earthwork, etc.), but
-also environmental, ecological or political. That price can also be seen as a penalization for going through
-certain points, which allows to simplify the set Cad, by including the points where the layout must not cross into the objective function. Finally, p(x, y) can also be a combination (weighted sum) of different
-types of prices.
-If we want to take into account all existing costs, obtaining a function p, as occurs with function
-F, can be a difficult task. However, in some simple applications, function p can be easily defined, as is
-illustrated in next sections, with two practical cases. In Section 4 we look for the shortest layout avoiding
-obstacles and/or minimizing slopes. In Section 5 we deal with improving the alignment of an existing
-road, in order to adapt it to current legislation.
+
+The concept of price, given by function \(p\), should be understood as a general function that models a wide range of possibilities: it can be economic (price of expropriation, asphalt cost, earthwork, etc.), but also environmental, ecological or political. That price can also be seen as a penalization for going through certain points, which allows to simplify the set \(C_{ad}\), by including the points where the layout must not cross into the objective function. Finally, \(p(x, y)\) can also be a combination (weighted sum) of different types of prices.
+
+If we want to take into account all existing costs, obtaining a function \(p\), as occurs with function \(F\), can be a difficult task. However, in some simple applications, function \(p\) can be easily defined, as is illustrated in next sections, with two practical cases. In Section 4 we look for the shortest layout avoiding obstacles and/or minimizing slopes. In Section 5 we deal with improving the alignment of an existing road, in order to adapt it to current legislation.
 
 ## 4. Design of a new road layout
 
-We want to design the horizontal alignment for a new road connecting two terminals a, b ∈R, holding
-the following restrictions: the radii of all circular curves should be at least 50 meters, straight segments
-must be over 100 meters and the length of every clothoid should be, at least, 95 meters. In this situation,
-the admissible set results
+We want to design the horizontal alignment for a new road connecting two terminals \(a, b \in \mathbb{R}^2\), holding the following restrictions: the radii of all circular curves should be at least 50 meters, straight segments must be over 100 meters and the length of every clothoid should be, at least, 95 meters. In this situation, the admissible set results
 \[
-X_{ad}^N = \left\{x^N \in \mathbb{R}^{4N} \left| \begin{array}{ll}
-R_i \ge 0.05 \\
-\theta_i(x^N) - \omega_i \ge 0.1 & i = 1, \dots, N \\
-L_i^C(x^N) \ge 0.095 \\
-L_j^T(x^N) \ge 0.1 & j = 1, \dots, N+1
-\end{array} \right. \right\}. \tag{8}
+X_{ad}^N = \left\{x^N \in \mathbb{R}^{4N} / \begin{array}{ll}
+R_i & \ge & 0.05 \\
+\theta_i(x^N) - \omega_i &\ge & 0.1 \\
+L_i^C(x^N) &\ge & 0.095 \\
+L_j^T(x^N) &\ge & 0.1
+\end{array},
+\begin{array}{ll}
+i &=& 1,\dots,N \\
+j &=& 1,\dots,N+1 \\
+\end{array}
+\right\}. \tag{8}
 \]
-Regarding the objective function J, we study two different situations:
+Regarding the objective function \(J\), we study two different situations:
 
 ### 4.1. Minimizing length and avoiding obstacles
 
@@ -305,8 +289,6 @@ Table 2: Numerical results obtained for problem detailed in Section 4.2.
 If more than one turn is permitted, the optimal solution turns out a layout going through the mountains, heavily decreasing the length of the path. It also can be seen that in both cases (\(N = 2\) and \(N = 3\)) the layout tries to avoid steep slopes, obtaining, as it might be expected, that the alignment with 3 turns (\(N = 3\)) is the best solution.
 
 ## 5. Improvement of horizontal alignment
-
-# 5 Improvement of horizontal alignment
 
 In this section we use the general formulation proposed in Section 3 to improve the alignment of an existing road. We assume that the old road needs an upgrade and the layout needs to be adapted to current legislation (for instance, the enforceability of using transition curves, restrictions over radii, length of straight sections, etc.). The aim here is the design of a new horizontal alignment linking points \( a \) and \( b \). This should be done exploiting as much as possible the old layout and verifying the legislation constraints.
 
