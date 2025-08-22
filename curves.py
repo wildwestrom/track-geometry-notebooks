@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.14.10"
+__generated_with = "0.15.0"
 app = marimo.App(width="medium")
 
 
@@ -377,6 +377,113 @@ def _(CurveResult, Params, integrate, np):
     return (smoothstep_curve,)
 
 
+@app.cell
+def _(CurveResult, Params, integrate, np):
+    def smoothstep_curve_2(p: Params) -> CurveResult:
+        r"""
+        This spiral also uses a smoothstep-based curvature function, 
+        providing a $G^\infty$ continuous transition from tangent to circular arc.
+
+        The advantage of this over the previous smoothstep curve is that its first derivative
+        has a smaller apex, therefore the angular jerk and snap is smaller, thus requiring a shorter
+        transition length for the same deflection angle.
+
+        The heading angle is given by:
+        $$
+        \theta(l) = R \int_0^l F\!\left(\tfrac{v}\right)\,dv
+        $$
+
+        where:
+        - $F(z) = \dfrac{\int_0^{\frac{2z}{L}} G(t-1)\,dt}{\int_0^2 G(t-1)\,dt}$ is the normalized smoothstep
+        - $G(t) = e^{-\tfrac{1}{1-t^2)}}$
+        - $l$ = arc length along the curve
+        - $L$ = total length of the transition curve
+        - $R$ = radius of the circular arc
+
+        The Cartesian coordinates of the spiral are then:
+        $$
+        x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv, 
+        \quad 
+        y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv
+        $$
+
+        with initial conditions $x(0)=0,\ y(0)=0,\ \theta(0)=0$.
+
+        The curvature is:
+        $$\kappa(s) = R F\!\left(s\right)$$
+        """
+        s = p.s
+        L = p.L
+        R = p.R
+
+        # ---------------------------------
+        # G, G', G'' (on (-1, 1); 0 outside)
+        # ---------------------------------
+        def G_base(t):
+            out = np.zeros_like(t)
+            mask = np.abs(t) < 1.0
+            u = t[mask]
+            out[mask] = np.exp(-1.0 / (1.0 - u**2))
+            return out
+
+        def h_prime(t):
+            # h(t) = -1/(1 - t^2); h'(t) = -2t / (1 - t^2)^2
+            out = np.zeros_like(t)
+            mask = np.abs(t) < 1.0
+            u = t[mask]
+            out[mask] = -2.0 * u / (1.0 - u**2) ** 2
+            return out
+
+        def h_double_prime(t):
+            # h''(t) = -2(1 + 3t^2) / (1 - t^2)^3
+            out = np.zeros_like(t)
+            mask = np.abs(t) < 1.0
+            u = t[mask]
+            out[mask] = -2.0 * (1.0 + 3.0 * u**2) / (1.0 - u**2) ** 3
+            return out
+
+        def Gp_base(t):
+            Gb = G_base(t)
+            return Gb * h_prime(t)
+
+        def Gpp_base(t):
+            Gb = G_base(t)
+            hp = h_prime(t)
+            hpp = h_double_prime(t)
+            return Gb * (hpp + hp**2)
+
+        u_grid = np.linspace(0.0, 2.0, p.n_s)
+        G_shift = G_base(u_grid - 1.0)
+        denom = integrate.trapezoid(G_shift, u_grid)
+
+        cum_num = integrate.cumulative_trapezoid(G_shift, u_grid, initial=0.0)
+        u_of_s = 2.0 * s / L
+        num = np.interp(u_of_s, u_grid, cum_num)
+        F_vals = num / denom
+
+        theta_vals = (1.0 / R) * integrate.cumulative_trapezoid(
+            F_vals, s, initial=0.0
+        )
+        cos_th = np.cos(theta_vals)
+        sin_th = np.sin(theta_vals)
+        x = integrate.cumulative_trapezoid(cos_th, s, initial=0.0)
+        y = integrate.cumulative_trapezoid(sin_th, s, initial=0.0)
+
+        k = (1.0 / R) * F_vals
+
+        t_arg = u_of_s - 1.0
+        Fp = (2.0 / L) * G_base(t_arg) / denom
+        Fpp = (2.0 / L) ** 2 * Gp_base(t_arg) / denom
+        Fppp = (2.0 / L) ** 3 * Gpp_base(t_arg) / denom
+
+        dkds = (1.0 / R) * Fp
+        d2kds2 = (1.0 / R) * Fpp
+        d3kds3 = (1.0 / R) * Fppp
+
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+    return (smoothstep_curve_2,)
+
+
 @app.cell(hide_code=True)
 def _(
     CurveFun,
@@ -389,6 +496,7 @@ def _(
     curve_sinusoidal,
     curve_wiener_bogen,
     smoothstep_curve,
+    smoothstep_curve_2,
 ):
     # Registry for easy extension
     CURVES: Dict[str, CurveFun] = {
@@ -404,6 +512,7 @@ def _(
         # "Radioid": curve_radioid,
         "Wiener Bogen": curve_wiener_bogen,
         "Smoothstep Curve": smoothstep_curve,
+        "Smoothstep 2": smoothstep_curve_2,
     }
     return (CURVES,)
 
@@ -601,7 +710,7 @@ def _(angle, get_R, get_angle, mo, np, set_L, set_R, set_angle):
 
 
     R_slider = mo.ui.slider(start=50.0, stop=max_R, step=100, value=get_R(), on_change=on_R_change)
-    angle_slider = mo.ui.slider(start=0.0, stop=np.radians(360), step=np.radians(1), value=angle, on_change=on_angle_change)
+    angle_slider = mo.ui.slider(start=0.001, stop=np.radians(360), step=np.radians(1), value=angle, on_change=on_angle_change)
     #L_slider = mo.ui.slider(start=10.0, stop=max_R * 2 * np.radians(360.0), step=100, value=get_L(), on_change=set_L)
     return R_slider, angle_slider
 
@@ -609,8 +718,8 @@ def _(angle, get_R, get_angle, mo, np, set_L, set_R, set_angle):
 @app.cell(hide_code=True)
 def _(R_slider, angle_slider, get_L, mo, np):
     mo.vstack([
-        mo.hstack([R_slider, f"{R_slider.value:0.0f} m"]),
-        mo.hstack([angle_slider, f"{np.degrees(angle_slider.value):0.1f}°"]),
+        mo.hstack(["Curve Radius", R_slider, f"{R_slider.value:0.0f} m"]),
+        mo.hstack(["Angle of Deflection", angle_slider, f"{np.degrees(angle_slider.value):0.1f}°"]),
         mo.hstack([f"Transition Length: {get_L():0.1f} m"])
     ], align="start")
     return
@@ -627,18 +736,19 @@ def _(
     plot_curves_cartesian,
 ):
     mo.vstack([
-        mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",])),
-        #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve"])),
-        mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",])),
-        #mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",])),
-        #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve"])),
-        #mo.ui.plotly(plot_error_to_my_curve(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Smoothstep Curve"])),
-        #mo.ui.plotly(plot_error_to_clothoid(Params(get_R(), get_L()), names=["Cubic Parabola", "Cubic (JP)", "Smoothstep Curve"])),
+        #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve", "Smoothstep 2"])),
+        mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        #mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve",  "Smoothstep 2"])),
+        #mo.ui.plotly(plot_error_to_my_curve(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Smoothstep Curve",  "Smoothstep 2"])),
+        #mo.ui.plotly(plot_error_to_clothoid(Params(get_R(), get_L()), names=["Cubic Parabola", "Cubic (JP)", "Smoothstep Curve",  "Smoothstep 2"])),
         #mo.ui.plotly(plot_error_to_clothoid_by_x(Params(get_R(), get_L()))),
-        #mo.ui.plotly(plot_error_to_bloss(Params(get_R(), get_L()), names=["Japanese Sine", "Smoothstep Curve"])),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve"], 1)),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve"], 2)),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve"], 3))
+        #mo.ui.plotly(plot_error_to_bloss(Params(get_R(), get_L()), names=["Japanese Sine", "Smoothstep Curve",  "Smoothstep 2"])),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 1)),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 2)),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 3))
     ])
     return
 
