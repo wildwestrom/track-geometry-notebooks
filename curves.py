@@ -278,7 +278,7 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
 
         # 4th derivative of curvature
         d4kds4 = (1.0 / R) * d4f_ds4 - h * Psi_2 * d6f_ds6
-    
+
         return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (
         curve_bloss,
@@ -295,32 +295,28 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
 def _(CurveResult, Params, integrate, np):
     def smoothstep_curve(p: Params) -> CurveResult:
         r"""
-        This spiral uses a smoothstep-based curvature function, 
+        This spiral uses a smoothstep-based curvature function,
         providing a $G^\infty$ continuous transition from tangent to circular arc.
-
+    
         The heading angle is given by:
-        $$
-        \theta(l) = \frac{1}{R} \int_0^l F\!\left(\tfrac{v}{L}\right)\,dv
-        $$
-
+    
+        $$\theta(l) = \frac{1}{R} \int_0^l F(\tfrac{v}{L})\,dv$$
+    
         where:
-        - $F(z) = \dfrac{\int_0^z G(t)\,dt}{\int_0^1 G(t)\,dt}$ is the normalized smoothstep
-        - $G(t) = e^{-\tfrac{1}{t(1-t)}}$
+        - $F(z) = \dfrac{\int_0^z G(t)\,dt}{\int_0^1 G(t)\,dt}$
+        - $G(t) = e^{\left(1-\tfrac{1}{t(1-t)}\right)}$
         - $l$ = arc length along the curve
         - $L$ = total length of the transition curve
         - $R$ = radius of the circular arc
-
+    
         The Cartesian coordinates of the spiral are then:
-        $$
-        x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv, 
-        \quad 
-        y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv
-        $$
-
+        $$x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv,
+        \quad
+        y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv$$
         with initial conditions $x(0)=0,\ y(0)=0,\ \theta(0)=0$.
-
+    
         The curvature is:
-        $$\kappa(s) = \frac{1}{R} F\!\left(\frac{s}{L}\right)$$
+        $$\kappa(s) = R F\left(\frac{s}{L}\right)$$
         """
         s = p.s
         L = p.L
@@ -397,7 +393,7 @@ def _(CurveResult, Params, integrate, np):
         d2kds2 = (1.0 / (R * L**2)) * Fpp
         d3kds3 = (1.0 / (R * L**3)) * Fppp
         d4kds4 = (1.0 / (R * L**4)) * Fpppp
-    
+
         return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (smoothstep_curve,)
 
@@ -406,36 +402,36 @@ def _(CurveResult, Params, integrate, np):
 def _(CurveResult, Params, integrate, np):
     def smoothstep_curve_2(p: Params) -> CurveResult:
         r"""
-        This spiral also uses a smoothstep-based curvature function, 
+        This spiral also uses a smoothstep-based curvature function,
         providing a $G^\infty$ continuous transition from tangent to circular arc.
-
+    
         The advantage of this over the previous smoothstep curve is that its first derivative
         has a smaller apex, therefore the angular jerk and snap is smaller, thus requiring a shorter
         transition length for the same deflection angle.
-
+    
         The heading angle is given by:
         $$
-        \theta(l) = R \int_0^l F\!\left(\tfrac{v}\right)\,dv
+        \theta(l) = R \int_0^l F(\tfrac{v}{L})\,dv
         $$
-
+    
         where:
-        - $F(z) = \dfrac{\int_0^{\frac{2z}{L}} G(t-1)\,dt}{\int_0^2 G(t-1)\,dt}$ is the normalized smoothstep
-        - $G(t) = e^{-\tfrac{1}{1-t^2)}}$
+        - $F(z) = \dfrac{\int_0^z G(t-1)\,dt}{\int_0^1 G(t-1)\,dt}$
+        - $G(t) = e^{-\tfrac{1}{1-t^2}}$
         - $l$ = arc length along the curve
         - $L$ = total length of the transition curve
         - $R$ = radius of the circular arc
-
+    
         The Cartesian coordinates of the spiral are then:
         $$
-        x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv, 
-        \quad 
+        x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv,
+        \quad
         y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv
         $$
-
+    
         with initial conditions $x(0)=0,\ y(0)=0,\ \theta(0)=0$.
-
+    
         The curvature is:
-        $$\kappa(s) = R F\!\left(s\right)$$
+        $$\kappa(s) = \frac{R}{2} F\left(\frac{2s}{L}\right)$$
         """
         s = p.s
         L = p.L
@@ -520,7 +516,7 @@ def _(CurveResult, Params, integrate, np):
         d2kds2 = (1.0 / R) * Fpp
         d3kds3 = (1.0 / R) * Fppp
         d4kds4 = (1.0 / R) * Fpppp
-    
+
         return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (smoothstep_curve_2,)
 
@@ -735,7 +731,12 @@ def _(CURVES: "Dict[str, CurveFun]", Params, jp_X):
             template="plotly_white",
         )
         return fig
-    return plot_curvature, plot_curvature_derivative, plot_curves_cartesian
+    return (
+        plot_curvature,
+        plot_curvature_derivative,
+        plot_curves_cartesian,
+        plot_error_to_bloss,
+    )
 
 
 @app.cell(hide_code=True)
@@ -790,6 +791,7 @@ def _(
     plot_curvature,
     plot_curvature_derivative,
     plot_curves_cartesian,
+    plot_error_to_bloss,
 ):
     mo.vstack([
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
@@ -798,14 +800,14 @@ def _(
         mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve",  "Smoothstep 2"])),
-        #mo.ui.plotly(plot_error_to_my_curve(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Smoothstep Curve",  "Smoothstep 2"])),
-        #mo.ui.plotly(plot_error_to_clothoid(Params(get_R(), get_L()), names=["Cubic Parabola", "Cubic (JP)", "Smoothstep Curve",  "Smoothstep 2"])),
-        #mo.ui.plotly(plot_error_to_clothoid_by_x(Params(get_R(), get_L()))),
-        #mo.ui.plotly(plot_error_to_bloss(Params(get_R(), get_L()), names=["Japanese Sine", "Smoothstep Curve",  "Smoothstep 2"])),
         mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 1)),
         mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 2)),
         mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 3)),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 4))
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 4)),
+        #mo.ui.plotly(plot_error_to_my_curve(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Smoothstep Curve",  "Smoothstep 2"])),
+        #mo.ui.plotly(plot_error_to_clothoid(Params(get_R(), get_L()), names=["Cubic Parabola", "Cubic (JP)", "Smoothstep Curve",  "Smoothstep 2"])),
+        #mo.ui.plotly(plot_error_to_clothoid_by_x(Params(get_R(), get_L()))),
+        mo.ui.plotly(plot_error_to_bloss(Params(get_R(), get_L()), names=["Japanese Sine", "Smoothstep Curve",  "Smoothstep 2"])),
     ])
     return
 
