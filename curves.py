@@ -51,7 +51,7 @@ def _():
     return CurveFun, CurveResult, Dict, Params, integrate, np, optimize, sc
 
 
-@app.cell(hide_code=True)
+@app.cell
 def _(CurveResult, Params, integrate, np, optimize, sc):
     def arc_len(R, L):
         def arclen(X):
@@ -82,7 +82,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = np.full_like(s, 1.0 / (p.R * p.L))
         d2kds2 = np.zeros_like(s)
         d3kds3 = np.zeros_like(s)
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = np.zeros_like(s)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
 
     def curve_cubic_parabola(p: Params) -> CurveResult:
@@ -97,7 +98,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = np.full_like(s, 1.0 / (p.R * p.L))
         d2kds2 = np.zeros_like(s)
         d3kds3 = np.zeros_like(s)
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = np.zeros_like(s)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
     def curve_cubic_jp(p: Params) -> CurveResult:
         """
@@ -115,7 +117,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = np.full_like(s, 1.0 / (R * L))
         d2kds2 = np.zeros_like(s)
         d3kds3 = np.zeros_like(s)
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = np.zeros_like(s)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
     def curve_japanese_sine(p: Params) -> CurveResult:
         r"""
@@ -136,7 +139,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = (np.pi / (2.0 * p.R * X)) * np.sin(np.pi * a)
         d2kds2 = (np.pi**2 / (2.0 * p.R * X**2)) * np.cos(np.pi * a)
         d3kds3 = -(np.pi**3 / (2.0 * p.R * X**3)) * np.sin(np.pi * a)
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = -(np.pi**4 / (2.0 * p.R * X**4)) * np.cos(np.pi * a)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
     def curve_bloss(p: Params) -> CurveResult:
         r"""
@@ -161,7 +165,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = (6 * s) / (R * L**2) - (6 * s**2) / (R * L**3)
         d2kds2 = (6.0 / (R * L**2)) - (12.0 * s) / (R * L**3)
         d3kds3 = np.full_like(s, -12.0 / (R * L**3))
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = np.zeros_like(s)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
     def curve_sinusoidal(p: Params) -> CurveResult:
         r"""
@@ -194,7 +199,8 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         dkds = (1.0 / (R * L)) - (1.0 / (R * L)) * np.cos(2.0 * np.pi * s / L)
         d2kds2 = (2.0 * np.pi / (R * L**2)) * np.sin(2.0 * np.pi * s / L)
         d3kds3 = (4.0 * np.pi**2 / (p.R * p.L**3)) * np.cos(2.0 * np.pi * s / p.L)
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = (-8.0 * np.pi**3 / (R * L**4)) * np.sin(2.0 * np.pi * s / L)
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
 
     def curve_wiener_bogen(
         p: Params, h: float = 1.8, cant_end: float = 0.150, gauge: float = 1.435
@@ -231,6 +237,7 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         d3f_du3 = 840 * u - 5040 * u**2 + 8400 * u**3 - 4200 * u**4
         d4f_du4 = 840 - 10080 * u + 25200 * u**2 - 16800 * u**3
         d5f_du5 = -10080 + 50400 * u - 50400 * u**2
+        d6f_du6 = 50400 - 100800 * u
 
         # Convert derivatives to be with respect to s (using chain rule d/ds = (1/L) * d/du)
         df_ds = df_du / L
@@ -238,6 +245,7 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         d3f_ds3 = d3f_du3 / L**3
         d4f_ds4 = d4f_du4 / L**4
         d5f_ds5 = d5f_du5 / L**5
+        d6f_ds6 = d6f_du6 / L**6
 
         # --- 2. Calculate Curvature and its Derivatives ---
         # The final cant angle (Psi_2) is approximated by cant / gauge
@@ -268,7 +276,10 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
         x = np.concatenate(([0.0], integrate.cumulative_trapezoid(cos_theta, s)))
         y = np.concatenate(([0.0], integrate.cumulative_trapezoid(sin_theta, s)))
 
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        # 4th derivative of curvature
+        d4kds4 = (1.0 / R) * d4f_ds4 - h * Psi_2 * d6f_ds6
+    
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (
         curve_bloss,
         curve_clothoid,
@@ -360,20 +371,34 @@ def _(CurveResult, Params, integrate, np):
             out[mask] = num / den
             return out
 
+        def h_triple_prime(t):
+            out = np.zeros_like(t)
+            mask = (t > 0.0) & (t < 1.0)
+            tm = t[mask]
+            g = tm * (1.0 - tm)
+            gp = 1.0 - 2.0 * tm
+            num = 6.0 * gp * (2.0 * g + gp**2)
+            den = g**4
+            out[mask] = num / den
+            return out
+
         Gp = G_vals * h_prime(u)
         Gpp = G_vals * (h_double_prime(u) + h_prime(u) ** 2)
+        Gppp = G_vals * (h_triple_prime(u) + 3.0 * h_double_prime(u) * h_prime(u) + h_prime(u) ** 3)
 
         # Derivatives of F
         Fp = G_vals / C
         Fpp = Gp / C
         Fppp = Gpp / C
+        Fpppp = Gppp / C
 
         # Derivatives of curvature
         dkds = (1.0 / (R * L)) * Fp
         d2kds2 = (1.0 / (R * L**2)) * Fpp
         d3kds3 = (1.0 / (R * L**3)) * Fppp
-
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = (1.0 / (R * L**4)) * Fpppp
+    
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (smoothstep_curve,)
 
 
@@ -442,6 +467,13 @@ def _(CurveResult, Params, integrate, np):
             out[mask] = -2.0 * (1.0 + 3.0 * u**2) / (1.0 - u**2) ** 3
             return out
 
+        def h_triple_prime(t):
+            out = np.zeros_like(t)
+            mask = np.abs(t) < 1.0
+            u = t[mask]
+            out[mask] = -24.0 * u * (1.0 + u**2) / (1.0 - u**2) ** 4
+            return out
+
         def Gp_base(t):
             Gb = G_base(t)
             return Gb * h_prime(t)
@@ -451,6 +483,13 @@ def _(CurveResult, Params, integrate, np):
             hp = h_prime(t)
             hpp = h_double_prime(t)
             return Gb * (hpp + hp**2)
+
+        def Gppp_base(t):
+            Gb = G_base(t)
+            hp = h_prime(t)
+            hpp = h_double_prime(t)
+            h3 = h_triple_prime(t)
+            return Gb * (h3 + 3.0 * hpp * hp + hp**3)
 
         u_grid = np.linspace(0.0, 2.0, p.n_s)
         G_shift = G_base(u_grid - 1.0)
@@ -475,12 +514,14 @@ def _(CurveResult, Params, integrate, np):
         Fp = (2.0 / L) * G_base(t_arg) / denom
         Fpp = (2.0 / L) ** 2 * Gp_base(t_arg) / denom
         Fppp = (2.0 / L) ** 3 * Gpp_base(t_arg) / denom
+        Fpppp = (2.0 / L) ** 4 * Gppp_base(t_arg) / denom
 
         dkds = (1.0 / R) * Fp
         d2kds2 = (1.0 / R) * Fpp
         d3kds3 = (1.0 / R) * Fppp
-
-        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3})
+        d4kds4 = (1.0 / R) * Fpppp
+    
+        return CurveResult(x, y, k, {1: dkds, 2: d2kds2, 3: d3kds3, 4: d4kds4})
     return (smoothstep_curve_2,)
 
 
@@ -544,7 +585,7 @@ def _(CURVES: "Dict[str, CurveFun]", Params, jp_X):
             fig.add_trace(go.Scatter(x=curve.x, y=curve.k, mode="lines", name=name))
 
         fig.update_layout(
-            title=r"$\text{Curvature}\ \kappa(s)$",
+            title=r"$\text{Curvature}\ \kappa(s) \text{ (angular acceleration)}$",
             xaxis_title="Arc length s [m]",
             yaxis_title=r"$\kappa(s) [m]$",
             legend_title="Curves",
@@ -560,6 +601,20 @@ def _(CURVES: "Dict[str, CurveFun]", Params, jp_X):
             suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
         return f"{n}{suffix}"
 
+    def derivative_of_position_string(order: int) -> str:
+        if order == 1:
+            return "velocity"
+        elif order == 2:
+            return "acceleration"
+        elif order == 3:
+            return "jerk"
+        elif order == 4:
+            return "snap"
+        elif order == 5:
+            return "crackle"
+        elif order == 6:
+            return "pop"
+
     def plot_curvature_derivative(p: Params, names: [str, ...], order: int):
         fig = go.Figure()
         s = p.s
@@ -570,9 +625,10 @@ def _(CURVES: "Dict[str, CurveFun]", Params, jp_X):
                 fig.add_trace(go.Scatter(x=s, y=d, mode="lines", name=name))
 
         ord_str = ordinal_suffix(order)
+        deriv_str = derivative_of_position_string(order + 2)
 
         fig.update_layout(
-            title=fr"$\text{{{ord_str} derivative of curvature}}\ \frac{{d^{order}k}}{{ds^{order}}}$",
+            title=fr"$\text{{{ord_str} derivative of curvature}}\ \frac{{d^{order}k}}{{ds^{order}}} \text{{(angular {deriv_str})}}$",
             xaxis_title="Arc length s [m]",
             yaxis_title=fr"$\frac{{d^{order}k}}{{ds^{order}}}$",
             legend_title="Curves",
@@ -685,7 +741,7 @@ def _(CURVES: "Dict[str, CurveFun]", Params, jp_X):
 @app.cell(hide_code=True)
 def _(mo, np):
     R = 5400.0 # Min curve radius for 350 km/h
-    angle = np.radians(45)
+    angle = np.radians(10)
     L = R * 2 * angle
 
     get_R, set_R = mo.state(R)
@@ -739,16 +795,17 @@ def _(
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve", "Smoothstep 2"])),
         mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
-        mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve",  "Smoothstep 2"])),
         #mo.ui.plotly(plot_error_to_my_curve(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Smoothstep Curve",  "Smoothstep 2"])),
         #mo.ui.plotly(plot_error_to_clothoid(Params(get_R(), get_L()), names=["Cubic Parabola", "Cubic (JP)", "Smoothstep Curve",  "Smoothstep 2"])),
         #mo.ui.plotly(plot_error_to_clothoid_by_x(Params(get_R(), get_L()))),
         #mo.ui.plotly(plot_error_to_bloss(Params(get_R(), get_L()), names=["Japanese Sine", "Smoothstep Curve",  "Smoothstep 2"])),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 1)),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 2)),
-        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 3))
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 1)),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 2)),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 3)),
+        mo.ui.plotly(plot_curvature_derivative(Params(get_R(), get_L()), ["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve",  "Smoothstep 2"], 4))
     ])
     return
 
