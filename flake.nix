@@ -1,6 +1,5 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     systems.url = "github:nix-systems/default";
     devenv.url = "github:cachix/devenv";
   };
@@ -28,27 +27,25 @@
               (
                 { pkgs, lib, ... }:
                 let
-                  pythonPackages = pkgs.python313Packages;
+                  pythonPackages = pkgs.python3Packages;
                 in
                 {
                   # https://devenv.sh/reference/options/
-                  packages = with pkgs; [
-                    stdenv.cc.cc.lib
-                    watchdog
-                    libz
-                    pyright
+                  packages = [
+                    pkgs.stdenv.cc.cc.lib
+                    pkgs.sqlite
                   ];
 
-                  enterShell = ''
-                    export USE_EXTERNAL_RAYLIB=1
-                  '';
-
+                  # https://devenv.sh/languages/
                   languages.python.enable = true;
-                  languages.python.package = pkgs.python313;
-                  languages.python.venv.enable = true;
+                  languages.python.package = pythonPackages.python;
+                  languages.python.uv.enable = true;
                 }
               )
             ];
+
+            # fixes libstdc++ issues and libgl.so issues
+            # LD_LIBRARY_PATH = ''${pkgs.stdenv.cc.cc.lib}/lib/:/run/opengl-driver/lib/'';
           };
         }
       );

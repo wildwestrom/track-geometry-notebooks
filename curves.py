@@ -51,7 +51,7 @@ def _():
     return CurveFun, CurveResult, Dict, Params, integrate, np, optimize, sc
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(CurveResult, Params, integrate, np, optimize, sc):
     def arc_len(R, L):
         def arclen(X):
@@ -291,30 +291,30 @@ def _(CurveResult, Params, integrate, np, optimize, sc):
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(CurveResult, Params, integrate, np):
     def smoothstep_curve(p: Params) -> CurveResult:
         r"""
         This spiral uses a smoothstep-based curvature function,
         providing a $G^\infty$ continuous transition from tangent to circular arc.
-    
+
         The heading angle is given by:
-    
+
         $$\theta(l) = \frac{1}{R} \int_0^l F(\tfrac{v}{L})\,dv$$
-    
+
         where:
         - $F(z) = \dfrac{\int_0^z G(t)\,dt}{\int_0^1 G(t)\,dt}$
         - $G(t) = e^{\left(1-\tfrac{1}{t(1-t)}\right)}$
         - $l$ = arc length along the curve
         - $L$ = total length of the transition curve
         - $R$ = radius of the circular arc
-    
+
         The Cartesian coordinates of the spiral are then:
         $$x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv,
         \quad
         y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv$$
         with initial conditions $x(0)=0,\ y(0)=0,\ \theta(0)=0$.
-    
+
         The curvature is:
         $$\kappa(s) = R F\left(\frac{s}{L}\right)$$
         """
@@ -398,38 +398,38 @@ def _(CurveResult, Params, integrate, np):
     return (smoothstep_curve,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(CurveResult, Params, integrate, np):
     def smoothstep_curve_2(p: Params) -> CurveResult:
         r"""
         This spiral also uses a smoothstep-based curvature function,
         providing a $G^\infty$ continuous transition from tangent to circular arc.
-    
+
         The advantage of this over the previous smoothstep curve is that its first derivative
         has a smaller apex, therefore the angular jerk and snap is smaller, thus requiring a shorter
         transition length for the same deflection angle.
-    
+
         The heading angle is given by:
         $$
         \theta(l) = R \int_0^l F(\tfrac{v}{L})\,dv
         $$
-    
+
         where:
         - $F(z) = \dfrac{\int_0^z G(t-1)\,dt}{\int_0^1 G(t-1)\,dt}$
         - $G(t) = e^{-\tfrac{1}{1-t^2}}$
         - $l$ = arc length along the curve
         - $L$ = total length of the transition curve
         - $R$ = radius of the circular arc
-    
+
         The Cartesian coordinates of the spiral are then:
         $$
         x(l) = \int_0^l \cos\!\big(\theta(v)\big)\,dv,
         \quad
         y(l) = \int_0^l \sin\!\big(\theta(v)\big)\,dv
         $$
-    
+
         with initial conditions $x(0)=0,\ y(0)=0,\ \theta(0)=0$.
-    
+
         The curvature is:
         $$\kappa(s) = \frac{R}{2} F\left(\frac{2s}{L}\right)$$
         """
@@ -796,7 +796,7 @@ def _(
     mo.vstack([
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Cubic Parabola", "Cubic (JP)", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve", "Smoothstep 2"])),
-        mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
+        mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Sinusoidal Curve", "Japanese Sine", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Clothoid", "Bloss Curve", "Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curvature(Params(get_R(), get_L()), names=["Japanese Sine", "Sinusoidal Curve", "Wiener Bogen", "Smoothstep Curve", "Smoothstep 2"])),
         #mo.ui.plotly(plot_curves_cartesian(Params(get_R(), get_L()), names=["Smoothstep Curve",  "Smoothstep 2"])),

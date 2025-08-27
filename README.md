@@ -35,6 +35,11 @@ The project uses Nix for dependency management. To set up the development enviro
 
 The user will have a marimo notebook open to run and view code changes.
 
+```
+# For example...
+uvx marimo edit curves.py
+```
+
 ## License
 
 MIT License
